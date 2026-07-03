@@ -12,6 +12,11 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Removed legacy Kotlin JVM target configuration that is now covered by Android compile options.
 - Kept the Compose compiler plugin, because Compose still needs its Kotlin compiler plugin setup.
 
+## [Unreleased]
+
+### Fixed
+- Enable AGP 9 resource value generation for flavor-specific `resValue` entries.
+
 ## [0.1.0] - 2026-07-03
 
 ### Added
