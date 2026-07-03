@@ -22,10 +22,24 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Lint and unit tests
+      - name: Lint, unit tests, and debug APKs
         run: |
-          bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest
+          bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest assembleOfflineDebug assembleUpdaterDebug
 
-      - name: Assemble debug APKs
+      - name: Collect debug APK artifacts
         run: |
-          bash scripts/gradle.sh assembleOfflineDebug assembleUpdaterDebug
+          set -euo pipefail
+          mkdir -p dist/ci
+          cp app/build/outputs/apk/offline/debug/*.apk dist/ci/tldh-offline-debug.apk
+          cp app/build/outputs/apk/updater/debug/*.apk dist/ci/tldh-updater-debug.apk
+          (cd dist/ci && sha256sum *.apk > SHA256SUMS.txt)
+
+      - name: Upload debug APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tldh-debug-apks-${{ github.sha }}
+          path: |
+            dist/ci/*.apk
+            dist/ci/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
