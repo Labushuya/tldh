@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Removed the obsolete `org.jetbrains.kotlin.android` plugin for AGP 9 built-in Kotlin support.
+- Removed legacy Kotlin JVM target configuration that is now covered by Android compile options.
+- Kept the Compose compiler plugin, because Compose still needs its Kotlin compiler plugin setup.
+
 ## [0.1.0] - 2026-07-03
 
 ### Added
