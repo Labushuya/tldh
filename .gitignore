@@ -1,0 +1,24 @@
+# Android / Gradle
+.gradle/
+build/
+*/build/
+local.properties
+*.iml
+.idea/
+
+# Signing / secrets
+*.jks
+*.keystore
+*.p12
+secrets.properties
+release-manifest.local.json
+
+# Local Gradle bootstrap cache
+.gradle-local/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App/runtime temp
+tldh-session-*

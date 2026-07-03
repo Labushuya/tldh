@@ -1,0 +1,17 @@
+{
+  "version": "0.1.0",
+  "versionCode": 100,
+  "channel": "stable",
+  "minSdk": 28,
+  "targetSdk": 36,
+  "apk": {
+    "name": "tldh-updater-0.1.0.apk",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sizeBytes": 1
+  },
+  "notes": {
+    "summary": "tl;dh stable release 0.1.0",
+    "changelogUrl": "CHANGELOG.md"
+  },
+  "yanked": false
+}

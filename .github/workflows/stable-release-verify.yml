@@ -1,0 +1,24 @@
+name: Stable Release Verify
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'release-manifest.json'
+      - 'scripts/verify-stable-release.py'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify manifest if present
+        run: |
+          if [ -f release-manifest.json ]; then
+            python scripts/verify-stable-release.py release-manifest.json
+          else
+            echo "No release-manifest.json in repo root; release workflow generates it."
+          fi
