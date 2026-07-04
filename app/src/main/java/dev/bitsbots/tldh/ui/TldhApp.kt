@@ -295,6 +295,12 @@ private fun ResultCard(summary: AudioSummary, sessionManager: SessionManager) {
         Text("TL;DR", color = TldhHotPurple, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(summary.tldr, style = MaterialTheme.typography.titleMedium)
+
+        if (summary.warnings.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            GuardrailWarningBlock(summary.warnings)
+        }
+
         Spacer(Modifier.height(18.dp))
 
         Text("Kernaussagen", fontWeight = FontWeight.Bold)
@@ -329,16 +335,25 @@ private fun ResultCard(summary: AudioSummary, sessionManager: SessionManager) {
             }
         }
 
-        if (summary.warnings.isNotEmpty()) {
-            Spacer(Modifier.height(18.dp))
-            Text("Hinweise", color = TldhDanger, fontWeight = FontWeight.Bold)
-            summary.warnings.forEach { Text("• $it", color = TldhTextMuted) }
-        }
-
         Spacer(Modifier.height(22.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { context.copyToClipboard(formatSummary(summary)) }) { Text("Copy All") }
             OutlinedButton(onClick = { sessionManager.wipeCurrentSession() }) { Text("Delete Session") }
+        }
+    }
+}
+
+@Composable
+private fun GuardrailWarningBlock(warnings: List<String>) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = TldhDanger.copy(alpha = 0.12f)),
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Hinweise / Guardrails", color = TldhDanger, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            warnings.forEach { Text("• $it", color = TldhTextMuted) }
         }
     }
 }
@@ -401,6 +416,11 @@ private fun formatSummary(summary: AudioSummary): String = buildString {
     appendLine("TL;DR")
     appendLine(summary.tldr)
     appendLine()
+    if (summary.warnings.isNotEmpty()) {
+        appendLine("Hinweise / Guardrails")
+        summary.warnings.forEach { appendLine("- $it") }
+        appendLine()
+    }
     appendLine("Kernaussagen")
     summary.keyPoints.forEach { appendLine("- $it") }
     appendLine()

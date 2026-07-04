@@ -7,6 +7,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.2.4] - 2026-07-04
+
+### Fixed
+- Prominently surfaces duration guardrail warnings directly below the TL;DR card.
+- Includes warnings/guardrails in the copied Share protocol output.
+- Adds explicit warning key points when audio duration exceeds the 3-minute warning threshold.
+
 ## [0.2.3] - 2026-07-04
 
 ### Added

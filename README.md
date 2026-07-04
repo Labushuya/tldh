@@ -8,7 +8,7 @@
 
 Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.2.3` bootstrap line. Share Target, audio ingest hardening, duration guardrails and the manual stable updater are implemented. Real local transcription starts in `v0.3.0`.
+> **Status:** `v0.2.4` bootstrap line. Share Target, audio ingest hardening, duration guardrails and the manual stable updater are implemented. Real local transcription starts in `v0.3.0`.
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
 ![Android](https://img.shields.io/badge/Android-local--first-8B5CF6)
@@ -74,7 +74,7 @@ tldh-<version>.apk
 Example:
 
 ```text
-tldh-0.2.3.apk
+tldh-0.2.4.apk
 ```
 
 This one app includes:
@@ -123,7 +123,7 @@ ANDROID_KEY_PASSWORD
 
 ## Release discipline
 
-- SemVer tags: `v0.2.3`, `v0.3.0`, ...
+- SemVer tags: `v0.2.4`, `v0.3.0`, ...
 - `versionName` follows SemVer
 - `versionCode` is monotonically increasing
 - release APKs are signed with the same key for update compatibility
@@ -151,7 +151,7 @@ A release is eligible only if:
 | `0.2.0` | Audio ingest + Ogg/Opus detection hardening |
 | `0.2.1` | Manual stable updater MVP |
 | `0.2.2` | Single APK release model with in-app updater |
-| `0.2.3` | Duration probing and long-audio guardrails |
+| `0.2.4` | Duration probing and long-audio guardrails |
 | `0.3.0` | Local `whisper.cpp` transcription spike |
 | `0.4.0` | Session wipe + privacy hardening |
 | `0.5.0` | TL;DR + key points |
@@ -167,3 +167,8 @@ A release is eligible only if:
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+## v0.2.4 UX guardrail fix
+
+Duration warnings are now shown directly below the TL;DR and included in the copied Share protocol output, so longer WhatsApp voice notes visibly carry their local-processing warning.
