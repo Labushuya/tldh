@@ -11,7 +11,7 @@ tldh-<version>.apk
 Example:
 
 ```text
-tldh-0.2.2.apk
+tldh-0.2.3.apk
 ```
 
 Legacy split assets such as `tldh-offline-*.apk` and `tldh-updater-*.apk` are no longer produced.
@@ -35,7 +35,7 @@ The fallback workflow is:
 tldh - Release by Version or Tag
 ```
 
-It can be triggered manually with a SemVer version or by pushing a tag such as `v0.2.2`.
+It can be triggered manually with a SemVer version or by pushing a tag such as `v0.2.3`.
 
 ## Signing
 

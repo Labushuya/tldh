@@ -103,7 +103,12 @@ class GitHubReleaseClient(
         val code = connection.responseCode
         if (code !in 200..299) {
             val errorText = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            error("GitHub antwortete mit HTTP $code. $errorText")
+            val hint = when (code) {
+                404 -> " Repository nicht gefunden oder nicht öffentlich erreichbar. Für den App-Updater muss das Release-Repo öffentlich sein oder ein späterer authentifizierter Update-Kanal implementiert werden."
+                403 -> " Zugriff wurde begrenzt oder verweigert. Später erneut versuchen oder GitHub-Rate-Limit prüfen."
+                else -> ""
+            }
+            error("GitHub antwortete mit HTTP $code.$hint $errorText")
         }
         return connection
     }

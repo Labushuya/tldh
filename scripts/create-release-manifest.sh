@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:?version required, e.g. 0.2.2}"
+VERSION="${1:?version required, e.g. 0.2.3}"
 VERSION_CODE="${2:?versionCode required}"
 APK_PATH="${3:?apk path required}"
 CHANNEL="${4:-stable}"

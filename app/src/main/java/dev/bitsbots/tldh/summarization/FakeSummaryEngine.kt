@@ -7,26 +7,28 @@ class FakeSummaryEngine {
     fun summarize(metadata: AudioMetadata): AudioSummary {
         val name = metadata.displayName ?: "geteilte Audiodatei"
         val sizeText = metadata.sizeBytes?.let { humanBytes(it) } ?: "unbekannte Größe"
+        val durationText = AudioIngestPolicy.formatDuration(metadata.durationMs)
         val warnings = buildList {
-            add("v0.2.0 transkribiert noch nicht. Diese Ausgabe ist bewusst ein technischer Audio-Ingest-Durchstich.")
+            add("v0.2.3 transkribiert noch nicht. Diese Ausgabe ist ein technischer Audio-Ingest- und Duration-Gate-Durchstich vor der lokalen Transkription.")
             addAll(metadata.validation.warnings)
         }
 
         return AudioSummary(
-            tldr = "Audio-Ingest funktioniert: tl;dh hat '$name' lokal entgegengenommen, als ${metadata.format} erkannt und gegen die MVP-Policy geprüft. Die echte Transkription wird ab v0.3.0 über whisper.cpp integriert.",
+            tldr = "Audio-Ingest funktioniert: tl;dh hat '$name' lokal entgegengenommen, als ${metadata.format} erkannt, die Dauer als $durationText gelesen und gegen die MVP-Policy geprüft. Die echte Transkription folgt im nächsten Whisper-Spike.",
             keyPoints = listOf(
                 "Quelle wurde über Android ACTION_SEND empfangen.",
                 "MIME-Type: ${metadata.mimeType ?: "unbekannt"}; Extension: ${metadata.extension ?: "unbekannt"}.",
-                "Dateigröße: $sizeText; Header-Probe: ${metadata.headerProbeBytes} Bytes.",
-                "MVP-Limit: ${humanBytes(AudioIngestPolicy.MAX_AUDIO_BYTES)}; Format akzeptiert: ${metadata.validation.accepted}.",
-                "Aktuell läuft ein Fake-Summarizer, damit Share, Ingest, Policy und UI testbar sind."
+                "Dateigröße: $sizeText; Audiodauer: $durationText; Header-Probe: ${metadata.headerProbeBytes} Bytes.",
+                "MVP-Limit: ${humanBytes(AudioIngestPolicy.MAX_AUDIO_BYTES)}; Soft-Dauerlimit: ${AudioIngestPolicy.formatDuration(AudioIngestPolicy.SOFT_DURATION_LIMIT_MS)}; Hard-Dauerlimit: ${AudioIngestPolicy.formatDuration(AudioIngestPolicy.HARD_DURATION_LIMIT_MS)}.",
+                "Format akzeptiert: ${metadata.validation.accepted}; lokale Verarbeitung bleibt ohne Cloud und ohne Telemetrie.",
+                "Aktuell läuft noch ein Fake-Summarizer, aber die Dauer-/Policy-Grenzen verhindern zu optimistische Transkriptionsläufe auf dem Gerät."
             ),
-            tags = listOf("share-target", "offline-first", "audio-ingest", metadata.format.name.lowercase()),
-            category = "Audio Ingest / Smoke Test",
+            tags = listOf("share-target", "offline-first", "audio-ingest", "duration-gate", metadata.format.name.lowercase()),
+            category = "Audio Ingest / Duration Guardrail",
             replySuggestions = listOf(
-                ReplySuggestion("kurz", "Hab's gesehen — die Audio wurde von tl;dh lokal erkannt."),
-                ReplySuggestion("freundlich", "Danke dir, die Sprachnachricht kam sauber in tl;dh an. Die echte Zusammenfassung folgt mit der Transkription."),
-                ReplySuggestion("direkt", "Die Audio ist angekommen und formatseitig geprüft. Inhaltliche Auswertung kommt ab der lokalen Transkription.")
+                ReplySuggestion("kurz", "Hab's gesehen — die Audio wurde von tl;dh lokal erkannt und geprüft."),
+                ReplySuggestion("freundlich", "Danke dir, die Sprachnachricht kam sauber in tl;dh an. Die lokale Transkription ist der nächste Schritt."),
+                ReplySuggestion("direkt", "Die Audio ist angekommen, formatseitig geprüft und innerhalb der lokalen Verarbeitungsgrenzen.")
             ),
             warnings = warnings
         )

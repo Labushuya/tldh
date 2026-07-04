@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+
+## [0.2.3] - 2026-07-04
+
+### Added
+- Add audio duration probing via Android media metadata before the transcription spike.
+- Add duration guardrails: 3-minute warning, 10-minute soft limit warning, and 15-minute hard limit rejection.
+- Add unit tests for long-audio warnings, hard-duration rejection, and duration formatting.
+
+### Changed
+- Include duration and duration-policy diagnostics in the share-result output.
+- Improve GitHub updater HTTP 404 messaging for private or non-public release repositories.
+
 ## [0.2.2] - 2026-07-04
 
 ### Changed

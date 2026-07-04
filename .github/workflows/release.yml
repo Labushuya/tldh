@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'SemVer version to release, for example 0.2.2'
+        description: 'SemVer version to release, for example 0.2.3'
         required: true
         type: string
 
@@ -36,7 +36,7 @@ jobs:
             TAG_NAME="v${VERSION}"
           fi
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release version must be SemVer without prefix, for example 0.2.2"
+            echo "::error::Release version must be SemVer without prefix, for example 0.2.3"
             exit 1
           fi
           IFS=. read -r major minor patch <<< "$VERSION"
