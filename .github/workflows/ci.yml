@@ -1,10 +1,12 @@
-name: tl;dh — CI + Auto Release
-run-name: "CI + Auto Release • ${{ github.ref_name }} • ${{ github.sha }}"
+name: tl;dh - CI + Auto Release
+run-name: "CI + Auto Release - ${{ github.ref_name }} - ${{ github.sha }}"
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34,21 +36,22 @@ jobs:
         run: |
           bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest assembleOfflineDebug assembleUpdaterDebug
 
-      - name: Collect debug APK artifacts
+      - name: Collect debug APKs and checksums
+        if: always()
         run: |
           set -euo pipefail
-          mkdir -p dist/ci
-          cp app/build/outputs/apk/offline/debug/*.apk dist/ci/tldh-offline-debug.apk
-          cp app/build/outputs/apk/updater/debug/*.apk dist/ci/tldh-updater-debug.apk
-          (cd dist/ci && sha256sum *.apk > SHA256SUMS.txt)
+          mkdir -p dist/debug
+          find app/build/outputs/apk -type f -name "*.apk" -print
+          cp app/build/outputs/apk/offline/debug/*.apk dist/debug/tldh-offline-debug.apk
+          cp app/build/outputs/apk/updater/debug/*.apk dist/debug/tldh-updater-debug.apk
+          cd dist/debug
+          sha256sum *.apk > SHA256SUMS.txt
 
       - name: Upload debug APK artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tldh-debug-apks-${{ github.sha }}
-          path: |
-            dist/ci/*.apk
-            dist/ci/SHA256SUMS.txt
+          path: dist/debug/*
           if-no-files-found: error
           retention-days: 14
 
@@ -69,26 +72,19 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          VERSION="$(python3 - <<'PY'
-from pathlib import Path
-import re
-text = Path('app/build.gradle.kts').read_text(encoding='utf-8')
-match = re.search(r'\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
-if not match:
-    raise SystemExit('Unable to resolve fallback SemVer version from app/build.gradle.kts')
-print(match.group(1))
-PY
-)"
-          IFS=. read -r major minor patch <<< "$VERSION"
-          VERSION_CODE=$((major * 10000 + minor * 100 + patch))
-          if [[ "$VERSION_CODE" -lt 1 ]]; then
-            VERSION_CODE=1
-          fi
-          TAG_NAME="v$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          echo "Resolved $TAG_NAME / versionCode $VERSION_CODE"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import pathlib, re
+          text = pathlib.Path('app/build.gradle.kts').read_text(encoding='utf-8')
+          version_match = re.search(r'val\s+resolvedVersionName\s*=\s*\(project\.findProperty\("VERSION_NAME"\)\s+as\s+String\?\)\s*\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
+          code_match = re.search(r'val\s+resolvedVersionCode\s*=\s*\(project\.findProperty\("VERSION_CODE"\)\s+as\s+String\?\)\?\.toInt\(\)\s*\?:\s*(\d+)', text)
+          if not version_match or not code_match:
+              raise SystemExit('Could not resolve default versionName/versionCode from app/build.gradle.kts')
+          version = version_match.group(1)
+          version_code = code_match.group(1)
+          print(f'version={version}')
+          print(f'version_code={version_code}')
+          print(f'tag_name=v{version}')
+          PY
 
       - name: Skip publish if stable release already exists
         id: existing
@@ -104,7 +100,7 @@ PY
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Verify signing secrets
+      - name: Ensure signing secrets are present
         if: steps.existing.outputs.exists != 'true'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -113,14 +109,10 @@ PY
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          missing=0
-          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing GitHub Actions secret: $name"
-              missing=1
-            fi
-          done
-          exit "$missing"
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
 
       - name: Set up JDK 17
         if: steps.existing.outputs.exists != 'true'
@@ -139,17 +131,17 @@ PY
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/keystore"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/keystore/tldh-release.jks"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > tldh-release.jks
 
       - name: Build signed release APKs
         if: steps.existing.outputs.exists != 'true'
         env:
-          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/keystore/tldh-release.jks
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/tldh-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           bash scripts/gradle.sh \
             -PVERSION_NAME="${{ steps.version.outputs.version }}" \
             -PVERSION_CODE="${{ steps.version.outputs.version_code }}" \
@@ -161,24 +153,25 @@ PY
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
           VERSION_CODE="${{ steps.version.outputs.version_code }}"
-          mkdir -p dist
-          cp app/build/outputs/apk/offline/release/*.apk "dist/tldh-offline-$VERSION.apk"
-          cp app/build/outputs/apk/updater/release/*.apk "dist/tldh-updater-$VERSION.apk"
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
-          bash scripts/create-release-manifest.sh "$VERSION" "$VERSION_CODE" "dist/tldh-updater-$VERSION.apk" stable
-          mv release-manifest.json dist/release-manifest.json
-          python scripts/verify-stable-release.py dist/release-manifest.json
+          mkdir -p dist/release
+          cp app/build/outputs/apk/offline/release/*.apk "dist/release/tldh-offline-$VERSION.apk"
+          cp app/build/outputs/apk/updater/release/*.apk "dist/release/tldh-updater-$VERSION.apk"
+          cd dist/release
+          sha256sum *.apk > SHA256SUMS.txt
+          cd ../..
+          bash scripts/create-release-manifest.sh "$VERSION" "$VERSION_CODE" "dist/release/tldh-offline-$VERSION.apk" "dist/release/tldh-updater-$VERSION.apk" > dist/release/release-manifest.json
+          python scripts/verify-stable-release.py dist/release/release-manifest.json
 
       - name: Create GitHub latest release
         if: steps.existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag_name }}
-          target_commitish: ${{ github.sha }}
-          draft: false
-          prerelease: false
+          name: tl;dh ${{ steps.version.outputs.version }}
+          make_latest: true
           generate_release_notes: true
           files: |
-            dist/*.apk
-            dist/SHA256SUMS.txt
-            dist/release-manifest.json
+            dist/release/tldh-offline-${{ steps.version.outputs.version }}.apk
+            dist/release/tldh-updater-${{ steps.version.outputs.version }}.apk
+            dist/release/SHA256SUMS.txt
+            dist/release/release-manifest.json
