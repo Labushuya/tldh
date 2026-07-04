@@ -68,7 +68,7 @@ jobs:
           bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest assembleOfflineDebug assembleUpdaterDebug
 
       - name: Collect debug APKs and checksums
-        if: always()
+        if: success()
         run: |
           set -euo pipefail
           mkdir -p dist/debug

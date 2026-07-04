@@ -112,7 +112,7 @@ class GitHubReleaseClient(
         .map { it.trim() }
         .filter { it.isNotBlank() }
         .mapNotNull { line ->
-            val parts = line.split(Regex("\s+"), limit = 2)
+            val parts = line.split(Regex("\\s+"), limit = 2)
             val sha = parts.getOrNull(0)?.takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) } ?: return@mapNotNull null
             val name = parts.getOrNull(1)?.trim()?.trimStart('*') ?: return@mapNotNull null
             name to sha.lowercase()
