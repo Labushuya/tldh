@@ -1,6 +1,5 @@
 package dev.bitsbots.tldh.audio
 
-import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -31,7 +30,7 @@ class AudioIngestPolicyTest {
     }
 
     private fun metadata(format: AudioFormat, sizeBytes: Long?) = AudioMetadata(
-        uri = Uri.parse("content://example/audio"),
+        uriString = "content://example/audio",
         displayName = "voice.opus",
         mimeType = "audio/ogg; codecs=opus",
         sizeBytes = sizeBytes,

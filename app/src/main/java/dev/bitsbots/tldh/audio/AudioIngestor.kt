@@ -2,14 +2,13 @@ package dev.bitsbots.tldh.audio
 
 import android.content.Context
 import android.database.Cursor
-import android.net.Uri
 import android.provider.OpenableColumns
 import dev.bitsbots.tldh.share.SharedAudio
 
 private const val UNKNOWN_SIZE: Long = -1L
 
 data class AudioMetadata(
-    val uri: Uri,
+    val uriString: String,
     val displayName: String?,
     val mimeType: String?,
     val sizeBytes: Long?,
@@ -33,7 +32,7 @@ class AudioIngestor(private val context: Context) {
         } ?: ByteArray(0)
         val format = AudioFormatDetector.detect(header, displayName, mime)
         val metadataWithoutValidation = AudioMetadata(
-            uri = sharedAudio.uri,
+            uriString = sharedAudio.uri.toString(),
             displayName = displayName,
             mimeType = mime,
             sizeBytes = size,
