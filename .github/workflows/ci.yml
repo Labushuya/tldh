@@ -1,16 +1,24 @@
-name: CI
+name: tl;dh — CI + Auto Release
+run-name: "CI + Auto Release • ${{ github.ref_name }} • ${{ github.sha }}"
 
 on:
   push:
     branches: [ main ]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: tldh-ci-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  android:
-    name: Android CI
+  verify_android:
+    name: Verify Android build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -22,7 +30,7 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Lint, unit tests, and debug APKs
+      - name: Run lint, unit tests, and debug APK builds
         run: |
           bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest assembleOfflineDebug assembleUpdaterDebug
 
@@ -44,20 +52,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  auto_release:
-    name: Auto publish stable release
-    needs: android
+  publish_stable_release:
+    name: Publish stable GitHub release
+    needs: verify_android
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve app version
+      - name: Resolve app SemVer from Gradle
         id: version
         run: |
           set -euo pipefail
@@ -82,7 +90,7 @@ PY
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "Resolved $TAG_NAME / versionCode $VERSION_CODE"
 
-      - name: Skip if release already exists
+      - name: Skip publish if stable release already exists
         id: existing
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,7 +99,7 @@ PY
           set -euo pipefail
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Release $TAG_NAME already exists. Skipping automatic publish."
+            echo "Release $TAG_NAME already exists. Nothing to publish."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -147,7 +155,7 @@ PY
             -PVERSION_CODE="${{ steps.version.outputs.version_code }}" \
             assembleOfflineRelease assembleUpdaterRelease
 
-      - name: Collect SemVer APKs and checksums
+      - name: Collect release APKs, checksums, and manifest
         if: steps.existing.outputs.exists != 'true'
         run: |
           set -euo pipefail
@@ -161,7 +169,7 @@ PY
           mv release-manifest.json dist/release-manifest.json
           python scripts/verify-stable-release.py dist/release-manifest.json
 
-      - name: Create GitHub Release
+      - name: Create GitHub latest release
         if: steps.existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:

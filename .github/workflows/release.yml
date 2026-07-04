@@ -1,4 +1,5 @@
-name: Release APK
+name: tl;dh — Manual/Tagged Release
+run-name: "Manual/Tagged Release • ${{ inputs.version || github.ref_name }}"
 
 on:
   push:
@@ -13,15 +14,15 @@ on:
 
 jobs:
   release:
-    name: Build signed SemVer release APKs
+    name: Build and publish signed SemVer APKs
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve release version
+      - name: Resolve requested SemVer release
         id: version
         env:
           VERSION_INPUT: ${{ inputs.version || '' }}
@@ -97,7 +98,7 @@ jobs:
             -PVERSION_CODE="${{ steps.version.outputs.version_code }}" \
             assembleOfflineRelease assembleUpdaterRelease
 
-      - name: Collect SemVer APKs and checksums
+      - name: Collect release APKs, checksums, and manifest
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
@@ -110,7 +111,7 @@ jobs:
           mv release-manifest.json dist/release-manifest.json
           python scripts/verify-stable-release.py dist/release-manifest.json
 
-      - name: Create GitHub Release
+      - name: Create GitHub latest release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag_name }}
