@@ -9,7 +9,7 @@ class FakeSummaryEngine {
         val sizeText = metadata.sizeBytes?.let { humanBytes(it) } ?: "unbekannte Größe"
         val durationText = AudioIngestPolicy.formatDuration(metadata.durationMs)
         val warnings = buildList {
-            add("v0.2.4 transkribiert noch nicht. Diese Ausgabe ist ein technischer Audio-Ingest- und Duration-Gate-Durchstich vor der lokalen Transkription.")
+            add("v0.2.5 transkribiert noch nicht. Diese Ausgabe ist ein technischer Audio-Ingest- und Duration-Gate-Durchstich vor der lokalen Transkription.")
             addAll(metadata.validation.warnings)
         }
 

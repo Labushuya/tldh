@@ -11,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,8 +51,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.bitsbots.tldh.R
 import dev.bitsbots.tldh.audio.AudioIngestor
 import dev.bitsbots.tldh.session.SessionManager
 import dev.bitsbots.tldh.share.ShareIntentReader
@@ -58,6 +63,7 @@ import dev.bitsbots.tldh.summarization.AudioSummary
 import dev.bitsbots.tldh.summarization.FakeSummaryEngine
 import dev.bitsbots.tldh.ui.theme.TldhBackground
 import dev.bitsbots.tldh.ui.theme.TldhDanger
+import dev.bitsbots.tldh.ui.theme.TldhGlow
 import dev.bitsbots.tldh.ui.theme.TldhHotPurple
 import dev.bitsbots.tldh.ui.theme.TldhPurple
 import dev.bitsbots.tldh.ui.theme.TldhSuccess
@@ -67,6 +73,7 @@ import dev.bitsbots.tldh.updates.ApkInstaller
 import dev.bitsbots.tldh.updates.GitHubReleaseClient
 import dev.bitsbots.tldh.updates.StableReleaseSelector
 import dev.bitsbots.tldh.updates.StableUpdate
+import dev.bitsbots.tldh.updates.UpdateDownloadGuard
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -123,7 +130,7 @@ fun TldhApp(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 72.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Header(appVersion = appVersion, channel = channel)
@@ -139,6 +146,7 @@ fun TldhApp(
                     ManualUpdaterCard(appVersion = appVersion, repositorySlug = repositorySlug)
                 }
             }
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
@@ -146,8 +154,14 @@ fun TldhApp(
 @Composable
 private fun Header(appVersion: String, channel: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Image(
+            painter = painterResource(id = R.drawable.tldh_logo),
+            contentDescription = "tl;dh logo",
+            modifier = Modifier.size(112.dp)
+        )
+        Spacer(Modifier.height(12.dp))
         Text("tl;dh", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Black)
-        Text("too long; didn't hear", color = TldhTextMuted, style = MaterialTheme.typography.titleMedium)
+        Text("Long story, short.", color = TldhTextMuted, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         Text(
             "v$appVersion · $channel · manual stable updater",
@@ -160,10 +174,10 @@ private fun Header(appVersion: String, channel: String) {
 @Composable
 private fun IdleCard() {
     TldhCard {
-        Text("Audio rein. Punkt raus.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Long story, short.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Text(
-            "Teile eine WhatsApp-Sprachnotiz an tl;dh. Diese Bootstrap-Version beweist zuerst den Share-Target-Flow und ersetzt die echte Transkription noch durch eine Fake-Auswertung.",
+            "Teile eine WhatsApp-Sprachnotiz an tl;dh. Diese Bootstrap-Version verdichtet die lange Audio technisch schon in Richtung kurzer verwertbarer Ausgabe; die echte Transkription folgt im Whisper-Spike.",
             color = TldhTextMuted
         )
         Spacer(Modifier.height(18.dp))
@@ -177,15 +191,23 @@ private fun IdleCard() {
 @Composable
 private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
     val context = LocalContext.current
+    val view = LocalView.current
     val scope = rememberCoroutineScope()
     var updateState by remember { mutableStateOf<ManualUpdateUiState>(ManualUpdateUiState.Idle) }
     val repositoryConfigured = repositorySlug.contains('/')
+    val downloadActive = updateState is ManualUpdateUiState.Downloading
+
+    DisposableEffect(downloadActive, view) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = downloadActive || previous
+        onDispose { view.keepScreenOn = previous }
+    }
 
     TldhCard {
         Text("Updates", color = TldhHotPurple, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            "tl;dh bleibt vollständig offline nutzbar. Diese Prüfung läuft nur, wenn du sie manuell startest und Internet vorhanden ist.",
+            "tl;dh bleibt vollständig offline nutzbar. Diese Prüfung läuft nur, wenn du sie manuell startest und Internet vorhanden ist. Downloads laufen bewusst im Vordergrund; währenddessen hält tl;dh das Gerät wach.",
             color = TldhTextMuted
         )
         Spacer(Modifier.height(10.dp))
@@ -231,17 +253,21 @@ private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
                 Text("Stabiles Update verfügbar: v${current.update.version}", color = TldhSuccess, fontWeight = FontWeight.Bold)
                 Text(current.update.apk.name, color = TldhTextMuted)
                 current.update.apk.sizeBytes?.let { Text("Größe: ${formatBytes(it)}", color = TldhTextMuted) }
+                Spacer(Modifier.height(8.dp))
+                Text("Beim Download bleibt die App wach. Bitte nicht wegwischen; nach erfolgreicher SHA256-Prüfung öffnet tl;dh den Android-Installer.", color = TldhTextMuted)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = {
                         scope.launch {
                             updateState = ManualUpdateUiState.Downloading(current.update, 0f)
                             updateState = runCatching {
-                                val file = GitHubReleaseClient(repositorySlug).downloadAsset(
-                                    asset = current.update.apk,
-                                    destinationDir = File(context.cacheDir, "updates"),
-                                    progress = { progress -> updateState = ManualUpdateUiState.Downloading(current.update, progress) }
-                                )
+                                val file = UpdateDownloadGuard(context).runGuardedDownload {
+                                    GitHubReleaseClient(repositorySlug).downloadAsset(
+                                        asset = current.update.apk,
+                                        destinationDir = File(context.cacheDir, "updates"),
+                                        progress = { progress -> scope.launch { updateState = ManualUpdateUiState.Downloading(current.update, progress) } }
+                                    )
+                                }
                                 ManualUpdateUiState.ReadyToInstall(current.update, file)
                             }.getOrElse { error -> ManualUpdateUiState.Error(error.message ?: "Download fehlgeschlagen.") }
                         }
@@ -254,6 +280,8 @@ private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
                 LinearProgressIndicator(progress = { current.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 Text("Download läuft … ${(current.progress * 100).toInt()} %", color = TldhTextMuted)
+                Spacer(Modifier.height(6.dp))
+                Text("tl;dh hält das Gerät währenddessen wach, damit Android den Download beim ausgeschalteten Display nicht abwürgt.", color = TldhSuccess)
             }
 
             is ManualUpdateUiState.ReadyToInstall -> {
@@ -321,7 +349,7 @@ private fun ResultCard(summary: AudioSummary, sessionManager: SessionManager) {
         Spacer(Modifier.height(8.dp))
         summary.replySuggestions.forEach { reply ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1D1230)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF220A1C)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
@@ -371,10 +399,10 @@ private fun ErrorCard(message: String) {
 private fun TldhCard(content: @Composable () -> Unit) {
     Card(
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = TldhSurface.copy(alpha = 0.92f)),
+        colors = CardDefaults.cardColors(containerColor = TldhSurface.copy(alpha = 0.94f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(24.dp), content = { content() })
+        Column(Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 72.dp), content = { content() })
     }
 }
 
@@ -389,7 +417,7 @@ private fun PulsatingPurpleLines() {
     )
     Canvas(Modifier.fillMaxSize()) {
         val brush = Brush.linearGradient(
-            colors = listOf(TldhPurple.copy(alpha = pulse), TldhHotPurple.copy(alpha = pulse * 0.8f), Color.Transparent),
+            colors = listOf(TldhPurple.copy(alpha = pulse), TldhHotPurple.copy(alpha = pulse * 0.9f), TldhGlow.copy(alpha = pulse * 0.52f), Color.Transparent),
             start = Offset(0f, 0f),
             end = Offset(size.width, size.height)
         )

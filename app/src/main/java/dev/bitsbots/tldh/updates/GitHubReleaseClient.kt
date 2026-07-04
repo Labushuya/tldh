@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.max
@@ -63,30 +64,46 @@ class GitHubReleaseClient(
         val tmp = File(destinationDir, "${asset.name}.part")
         if (tmp.exists()) tmp.delete()
         if (target.exists()) target.delete()
-        val connection = openConnection(asset.downloadUrl)
-        val expectedBytes = asset.sizeBytes?.takeIf { it > 0 }
-        connection.inputStream.use { input ->
-            tmp.outputStream().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var written = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    output.write(buffer, 0, read)
-                    written += read
-                    if (expectedBytes != null) progress((written.toFloat() / max(expectedBytes, 1L)).coerceIn(0f, 1f))
+        var connection: HttpURLConnection? = null
+        try {
+            connection = openConnection(asset.downloadUrl)
+            val expectedBytes = asset.sizeBytes?.takeIf { it > 0 }
+            connection.inputStream.use { input ->
+                tmp.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var written = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                        written += read
+                        if (expectedBytes != null) {
+                            progress((written.toFloat() / max(expectedBytes, 1L)).coerceIn(0f, 1f))
+                        }
+                    }
                 }
             }
-        }
-        val actual = Checksum.sha256(tmp)
-        val expected = asset.sha256 ?: error("Release enthält keine SHA256-Prüfsumme.")
-        if (!actual.equals(expected, ignoreCase = true)) {
+            val actual = Checksum.sha256(tmp)
+            val expected = asset.sha256 ?: error("Release enthält keine SHA256-Prüfsumme.")
+            if (!actual.equals(expected, ignoreCase = true)) {
+                tmp.delete()
+                error("SHA256-Prüfung fehlgeschlagen. Download wurde verworfen.")
+            }
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true)
+                tmp.delete()
+            }
+            progress(1f)
+            target
+        } catch (io: IOException) {
             tmp.delete()
-            error("SHA256-Prüfung fehlgeschlagen. Download wurde verworfen.")
+            throw IllegalStateException(
+                "Download wurde unterbrochen. tl;dh hält das Gerät während des Downloads wach; lasse die App trotzdem geöffnet und starte den Download erneut, falls Android oder die Netzwerkverbindung ihn beendet hat.",
+                io
+            )
+        } finally {
+            connection?.disconnect()
         }
-        tmp.renameTo(target)
-        progress(1f)
-        target
     }
 
     private fun getText(url: String): String {
@@ -97,7 +114,7 @@ class GitHubReleaseClient(
     private fun openConnection(url: String): HttpURLConnection {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 12_000
-        connection.readTimeout = 30_000
+        connection.readTimeout = 120_000
         connection.setRequestProperty("Accept", "application/vnd.github+json")
         connection.setRequestProperty("User-Agent", "tldh-android-updater")
         val code = connection.responseCode

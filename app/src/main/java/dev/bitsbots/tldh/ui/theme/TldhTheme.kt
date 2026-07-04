@@ -7,18 +7,19 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-val TldhBackground = Color(0xFF09060F)
-val TldhSurface = Color(0xFF120B1F)
-val TldhPurple = Color(0xFF8B5CF6)
-val TldhHotPurple = Color(0xFFC026D3)
-val TldhText = Color(0xFFF8F7FF)
-val TldhTextMuted = Color(0xFFBEB7D8)
+val TldhBackground = Color(0xFF08030A)
+val TldhSurface = Color(0xFF160815)
+val TldhPurple = Color(0xFF6F063F)
+val TldhHotPurple = Color(0xFFA50B5E)
+val TldhGlow = Color(0xFFD72B84)
+val TldhText = Color(0xFFFDF7FB)
+val TldhTextMuted = Color(0xFFD7B8CA)
 val TldhSuccess = Color(0xFF34D399)
 val TldhDanger = Color(0xFFFB7185)
 
 private val TldhDarkColorScheme: ColorScheme = darkColorScheme(
     primary = TldhPurple,
-    secondary = TldhHotPurple,
+    secondary = TldhGlow,
     background = TldhBackground,
     surface = TldhSurface,
     onPrimary = TldhText,

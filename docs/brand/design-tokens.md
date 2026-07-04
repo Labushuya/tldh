@@ -1,17 +1,13 @@
 # Design Tokens
 
 ```text
-radius.card = 28dp
-radius.banner = 48px
-motion.pulse.duration = 2600ms
-motion.pulse.easing = FastOutSlowIn
-stroke.wave.primary = 8dp
-stroke.backgroundLine = 2dp
-surface.alpha = 0.92
+background.primary = #08030A
+background.surface = #160815
+accent.core = #A50B5E
+accent.deep = #6F063F
+accent.glow = #D72B84
+text.primary = #FDF7FB
+text.secondary = #D7B8CA
+bottom.safe.breathing = 72dp
+card.radius = 28dp
 ```
-
-Accessibility:
-
-- Respect system reduce-motion settings once animation hardening begins.
-- Never make text depend on glow for readability.
-- Keep critical status text static.

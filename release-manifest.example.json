@@ -1,16 +1,16 @@
 {
-  "version": "0.2.4",
-  "versionCode": 202,
+  "version": "0.2.5",
+  "versionCode": 205,
   "channel": "stable",
   "minSdk": 28,
   "targetSdk": 36,
   "apk": {
-    "name": "tldh-0.2.4.apk",
+    "name": "tldh-0.2.5.apk",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "sizeBytes": 1
   },
   "notes": {
-    "summary": "tl;dh stable release 0.2.4",
+    "summary": "tl;dh stable release 0.2.5",
     "changelogUrl": "CHANGELOG.md"
   },
   "yanked": false

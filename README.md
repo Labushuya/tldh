@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/banner.svg" alt="tl;dh — too long; didn't hear" width="100%">
+  <img src="docs/brand/banner.png" alt="tl;dh — too long; didn't hear" width="100%">
 </p>
 
 # tl;dh
@@ -8,10 +8,10 @@
 
 Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.2.4` bootstrap line. Share Target, audio ingest hardening, duration guardrails and the manual stable updater are implemented. Real local transcription starts in `v0.3.0`.
+> **Status:** `v0.2.5` bootstrap line. Share Target, audio ingest hardening, duration guardrails and the manual stable updater are implemented. Real local transcription starts in `v0.3.0`.
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
-![Android](https://img.shields.io/badge/Android-local--first-8B5CF6)
+![Android](https://img.shields.io/badge/Android-local--first-A50B5E)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF)
 ![Privacy](https://img.shields.io/badge/Privacy-no%20cloud-34D399)
 ![License](https://img.shields.io/badge/License-MIT-white)
@@ -74,7 +74,7 @@ tldh-<version>.apk
 Example:
 
 ```text
-tldh-0.2.4.apk
+tldh-0.2.5.apk
 ```
 
 This one app includes:
@@ -123,7 +123,7 @@ ANDROID_KEY_PASSWORD
 
 ## Release discipline
 
-- SemVer tags: `v0.2.4`, `v0.3.0`, ...
+- SemVer tags: `v0.2.5`, `v0.3.0`, ...
 - `versionName` follows SemVer
 - `versionCode` is monotonically increasing
 - release APKs are signed with the same key for update compatibility
@@ -152,6 +152,7 @@ A release is eligible only if:
 | `0.2.1` | Manual stable updater MVP |
 | `0.2.2` | Single APK release model with in-app updater |
 | `0.2.4` | Duration probing and long-audio guardrails |
+| `0.2.5` | Brand refresh, app icon/banner update, bottom breathing room and guarded update downloads |
 | `0.3.0` | Local `whisper.cpp` transcription spike |
 | `0.4.0` | Session wipe + privacy hardening |
 | `0.5.0` | TL;DR + key points |
@@ -162,7 +163,7 @@ A release is eligible only if:
 
 ## Brand
 
-`tl;dh` uses a dark, local-first visual system with pulsating purple gradient lines. Brand assets live in [`docs/brand`](docs/brand/README.md).
+`tl;dh` uses a dark, local-first visual system with deep magenta `#a50b5e` gradients, compressed voice-wave motifs and extra mobile bottom breathing room. Brand assets live in [`docs/brand`](docs/brand/README.md).
 
 ## License
 
@@ -172,3 +173,12 @@ MIT. See [LICENSE](LICENSE).
 ## v0.2.4 UX guardrail fix
 
 Duration warnings are now shown directly below the TL;DR and included in the copied Share protocol output, so longer WhatsApp voice notes visibly carry their local-processing warning.
+
+
+## v0.2.5 Brand + updater hardening
+
+- README banner and app logo are updated to the new `Long story, short.` brand direction.
+- Primary accent shifts toward `#a50b5e`.
+- App UI receives more bottom breathing room for large scrollable result cards.
+- Manual APK update downloads now keep the device awake during the foreground download and show clearer interruption guidance instead of collapsing into a generic GitHub/network error.
+- The v0.3.0 transcription spike is planned from the validated 4:45 min WhatsApp OGG_OPUS Share protocol in `docs/planning/v0.3.0-whisper-spike.md`.

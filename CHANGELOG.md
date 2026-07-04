@@ -7,6 +7,19 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.2.5] - 2026-07-04
+
+### Added
+- Add new `Long story, short.` banner/logo assets to the repository and app resources.
+- Add guarded update downloads with a foreground keep-screen-on state and a partial wake lock.
+- Add v0.3.0 Whisper spike planning document based on the validated 4:45 min WhatsApp OGG_OPUS Share protocol.
+
+### Changed
+- Shift the in-app color direction toward the deep magenta `#a50b5e` brand accent.
+- Add more bottom breathing room to the scrollable mobile UI so dense result cards do not sit flush against the display bottom.
+- Make update-download interruption messages more specific and actionable.
+
+
 ## [0.2.4] - 2026-07-04
 
 ### Fixed
