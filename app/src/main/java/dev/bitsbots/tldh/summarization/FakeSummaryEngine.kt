@@ -2,38 +2,84 @@ package dev.bitsbots.tldh.summarization
 
 import dev.bitsbots.tldh.audio.AudioIngestPolicy
 import dev.bitsbots.tldh.audio.AudioMetadata
+import dev.bitsbots.tldh.transcription.TranscriptionOutcome
+import dev.bitsbots.tldh.transcription.TranscriptionStatus
 
 class FakeSummaryEngine {
-    fun summarize(metadata: AudioMetadata): AudioSummary {
+    fun summarize(metadata: AudioMetadata, transcription: TranscriptionOutcome? = null): AudioSummary {
         val name = metadata.displayName ?: "geteilte Audiodatei"
         val sizeText = metadata.sizeBytes?.let { humanBytes(it) } ?: "unbekannte Größe"
         val durationText = AudioIngestPolicy.formatDuration(metadata.durationMs)
+        val transcript = transcription?.transcript?.trim()?.takeIf { it.isNotBlank() }
+        val transcriptionStatus = transcription?.let { "${it.engine}: ${it.status.name.lowercase()}" }
         val warnings = buildList {
-            add("v0.2.5 transkribiert noch nicht. Diese Ausgabe ist ein technischer Audio-Ingest- und Duration-Gate-Durchstich vor der lokalen Transkription.")
+            if (transcript == null) {
+                add("v0.3.0 versucht lokale Transkription. Wenn der Geräte-Recognizer sie nicht unterstützt, bleibt tl;dh sauber beim Audio-Ingest-Fallback.")
+            }
             addAll(metadata.validation.warnings)
+            transcription?.takeIf { it.status != TranscriptionStatus.COMPLETED }?.let { add(it.message) }
         }
 
-        return AudioSummary(
-            tldr = "Audio-Ingest funktioniert: tl;dh hat '$name' lokal entgegengenommen, als ${metadata.format} erkannt, die Dauer als $durationText gelesen und gegen die MVP-Policy geprüft. Die echte Transkription folgt im nächsten Whisper-Spike.",
-            keyPoints = buildList {
-                add("Quelle wurde über Android ACTION_SEND empfangen.")
-                add("MIME-Type: ${metadata.mimeType ?: "unbekannt"}; Extension: ${metadata.extension ?: "unbekannt"}.")
-                add("Dateigröße: $sizeText; Audiodauer: $durationText; Header-Probe: ${metadata.headerProbeBytes} Bytes.")
-                add("MVP-Limit: ${humanBytes(AudioIngestPolicy.MAX_AUDIO_BYTES)}; Soft-Dauerlimit: ${AudioIngestPolicy.formatDuration(AudioIngestPolicy.SOFT_DURATION_LIMIT_MS)}; Hard-Dauerlimit: ${AudioIngestPolicy.formatDuration(AudioIngestPolicy.HARD_DURATION_LIMIT_MS)}.")
-                if (metadata.validation.warnings.isNotEmpty()) {
-                    add("Warnung/Guardrail aktiv: ${metadata.validation.warnings.joinToString(" ")}")
-                }
-                add("Format akzeptiert: ${metadata.validation.accepted}; lokale Verarbeitung bleibt ohne Cloud und ohne Telemetrie.")
-                add("Aktuell läuft noch ein Fake-Summarizer, aber die Dauer-/Policy-Grenzen verhindern zu optimistische Transkriptionsläufe auf dem Gerät.")
-            },
-            tags = listOf("share-target", "offline-first", "audio-ingest", "duration-gate", metadata.format.name.lowercase()),
-            category = "Audio Ingest / Duration Guardrail",
-            replySuggestions = listOf(
-                ReplySuggestion("kurz", "Hab's gesehen — die Audio wurde von tl;dh lokal erkannt und geprüft."),
-                ReplySuggestion("freundlich", "Danke dir, die Sprachnachricht kam sauber in tl;dh an. Die lokale Transkription ist der nächste Schritt."),
-                ReplySuggestion("direkt", "Die Audio ist angekommen, formatseitig geprüft und innerhalb der lokalen Verarbeitungsgrenzen.")
-            ),
-            warnings = warnings
+        val technicalDetails = listOf(
+            "Quelle: Android ACTION_SEND",
+            "Datei: $name",
+            "MIME: ${metadata.mimeType ?: "unbekannt"}; Extension: ${metadata.extension ?: "unbekannt"}",
+            "Format: ${metadata.format}; akzeptiert: ${metadata.validation.accepted}",
+            "Größe: $sizeText; Dauer: $durationText; Header-Probe: ${metadata.headerProbeBytes} Bytes",
+            "Limits: 50 MB, Warnung ab 3:00 min, Soft 10:00 min, Hard 15:00 min"
+        ) + listOfNotNull(transcription?.let { "Transkription: ${it.status}; ${it.message}${it.elapsedMs?.let { ms -> "; ${ms} ms" } ?: ""}" })
+
+        return if (transcript != null) {
+            AudioSummary(
+                tldr = transcript.toConciseTldr(),
+                keyPoints = listOf(
+                    "Lokale Transkription wurde erzeugt.",
+                    "Audio: $durationText · $sizeText · ${metadata.format}.",
+                    "Inhalt ist als Transkript kopierbar; echte semantische Zusammenfassung folgt nach dem Whisper-/LLM-Hardening."
+                ),
+                tags = listOf("local-transcription", "offline-first", "audio-ingest", metadata.format.name.lowercase()),
+                category = "Local Transcription Spike",
+                replySuggestions = transcript.replySuggestionsFromTranscript(),
+                warnings = warnings,
+                transcript = transcript,
+                transcriptionStatus = transcriptionStatus,
+                technicalDetails = technicalDetails
+            )
+        } else {
+            AudioSummary(
+                tldr = "Audio erkannt: $durationText · $sizeText · ${metadata.format}. Lokale Transkription wurde versucht, ist auf diesem Gerät/Build aber noch nicht verfügbar.",
+                keyPoints = listOf(
+                    "Audio-Ingest und Guardrails funktionieren.",
+                    "Transkriptionsstatus: ${transcription?.status ?: TranscriptionStatus.SKIPPED}.",
+                    "Nächster Schritt: robuste Whisper-Integration statt Geräte-Recognizer-Fallback."
+                ),
+                tags = listOf("share-target", "offline-first", "audio-ingest", "transcription-spike", metadata.format.name.lowercase()),
+                category = "Local Transcription Spike / Fallback",
+                replySuggestions = listOf(
+                    ReplySuggestion("kurz", "Hab's gesehen — tl;dh hat die Audio lokal geprüft."),
+                    ReplySuggestion("freundlich", "Danke dir, die Sprachnachricht kam sauber in tl;dh an. Die lokale Transkription wird gerade gehärtet."),
+                    ReplySuggestion("direkt", "Audio ist angekommen; Transkription ist im aktuellen Spike noch nicht verlässlich verfügbar.")
+                ),
+                warnings = warnings,
+                transcript = null,
+                transcriptionStatus = transcriptionStatus,
+                technicalDetails = technicalDetails
+            )
+        }
+    }
+
+    private fun String.toConciseTldr(): String {
+        val clean = replace(Regex("\\s+"), " ").trim()
+        return if (clean.length <= 260) clean else clean.take(257).trimEnd() + "…"
+    }
+
+    private fun String.replySuggestionsFromTranscript(): List<ReplySuggestion> {
+        val clean = replace(Regex("\\s+"), " ").trim()
+        val snippet = if (clean.length <= 120) clean else clean.take(117).trimEnd() + "…"
+        return listOf(
+            ReplySuggestion("kurz", "Hab's gelesen — ich melde mich dazu."),
+            ReplySuggestion("freundlich", "Danke dir, ich hab die Sprachnachricht jetzt als Text vorliegen und schaue drauf."),
+            ReplySuggestion("direkt", "Ich habe den Inhalt erfasst: $snippet")
         )
     }
 

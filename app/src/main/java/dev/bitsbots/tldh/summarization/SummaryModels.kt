@@ -11,5 +11,8 @@ data class AudioSummary(
     val tags: List<String>,
     val category: String?,
     val replySuggestions: List<ReplySuggestion>,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val transcript: String? = null,
+    val transcriptionStatus: String? = null,
+    val technicalDetails: List<String> = emptyList()
 )

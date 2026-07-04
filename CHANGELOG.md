@@ -7,6 +7,22 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.3.0] - 2026-07-04
+
+### Added
+- Add first local transcription spike using Android on-device file recognition when available on the device.
+- Add PCM preparation pipeline for shared audio: decode via Android media stack, convert to 16 kHz mono PCM, then pass a file descriptor to the local recognizer.
+- Add transcript-aware result output with copyable transcript and compact technical details.
+
+### Changed
+- Reduce result-screen text density by making technical diagnostics secondary.
+- Increase TL;DR contrast with a brighter dedicated summary card.
+- Keep duration guardrails as the safety gate before local transcription attempts.
+
+### Known limitations
+- v0.3.0 is a spike: transcription depends on Android on-device recognition support on the actual device. If unavailable or unreliable, tl;dh falls back to the validated audio-ingest/guardrail output instead of pretending a transcript exists.
+- Native `whisper.cpp` integration remains the next hardening step after this device-level local transcription spike.
+
 ## [0.2.5] - 2026-07-04
 
 ### Added

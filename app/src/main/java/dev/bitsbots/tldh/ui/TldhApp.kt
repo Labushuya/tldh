@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.bitsbots.tldh.R
 import dev.bitsbots.tldh.audio.AudioIngestor
@@ -61,6 +63,7 @@ import dev.bitsbots.tldh.session.SessionManager
 import dev.bitsbots.tldh.share.ShareIntentReader
 import dev.bitsbots.tldh.summarization.AudioSummary
 import dev.bitsbots.tldh.summarization.FakeSummaryEngine
+import dev.bitsbots.tldh.transcription.LocalTranscriptionSpike
 import dev.bitsbots.tldh.ui.theme.TldhBackground
 import dev.bitsbots.tldh.ui.theme.TldhDanger
 import dev.bitsbots.tldh.ui.theme.TldhGlow
@@ -110,10 +113,14 @@ fun TldhApp(
         val sharedAudio = ShareIntentReader.read(currentIntent)
         if (sharedAudio != null) {
             state = TldhUiState.Processing
-            sessionManager.newSessionId()
             state = runCatching {
+                val sessionId = sessionManager.newSessionId()
                 val metadata = AudioIngestor(context).inspect(sharedAudio)
-                TldhUiState.Result(FakeSummaryEngine().summarize(metadata))
+                val transcription = LocalTranscriptionSpike(
+                    context = context,
+                    workDir = File(context.cacheDir, sessionId)
+                ).transcribe(sharedAudio, metadata)
+                TldhUiState.Result(FakeSummaryEngine().summarize(metadata, transcription))
             }.getOrElse { error ->
                 TldhUiState.Error(error.message ?: "Audio konnte nicht gelesen werden.")
             }
@@ -177,12 +184,12 @@ private fun IdleCard() {
         Text("Long story, short.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Text(
-            "Teile eine WhatsApp-Sprachnotiz an tl;dh. Diese Bootstrap-Version verdichtet die lange Audio technisch schon in Richtung kurzer verwertbarer Ausgabe; die echte Transkription folgt im Whisper-Spike.",
+            "Teile eine WhatsApp-Sprachnotiz an tl;dh. Die App prüft Format, Dauer und versucht im Spike erstmals lokale Transkription.",
             color = TldhTextMuted
         )
         Spacer(Modifier.height(18.dp))
         Text(
-            "Eine App, eine APK: Die Core-Funktion läuft offline. Update-Checks startest du nur manuell, wenn Internet vorhanden ist. Keine Hintergrunddienste, keine Telemetrie.",
+            "Eine App, eine APK. Core offline, Updates nur manuell.",
             color = TldhSuccess
         )
     }
@@ -307,11 +314,11 @@ private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
 @Composable
 private fun ProcessingCard() {
     TldhCard {
-        Text("Audio wird lokal geprüft …", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Audio wird lokal verarbeitet …", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
-        Text("Keine Cloud. Keine Telemetrie. Keine persistente Session.", color = TldhTextMuted)
+        Text("Ingest → Dauer-Gate → lokaler Transkriptions-Spike. Keine Cloud für die Core-Verarbeitung.", color = TldhTextMuted)
     }
 }
 
@@ -319,54 +326,119 @@ private fun ProcessingCard() {
 @Composable
 private fun ResultCard(summary: AudioSummary, sessionManager: SessionManager) {
     val context = LocalContext.current
+    var showDetails by remember(summary) { mutableStateOf(false) }
     TldhCard {
-        Text("TL;DR", color = TldhHotPurple, fontWeight = FontWeight.Bold)
+        Text("Long story, short.", color = TldhHotPurple, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text(summary.tldr, style = MaterialTheme.typography.titleMedium)
+        TldrBlock(summary.tldr)
 
-        if (summary.warnings.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            GuardrailWarningBlock(summary.warnings)
+        if (summary.transcript != null) {
+            Spacer(Modifier.height(14.dp))
+            TranscriptBlock(summary.transcript)
         }
 
-        Spacer(Modifier.height(18.dp))
+        if (summary.warnings.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            GuardrailWarningBlock(summary.warnings.take(3))
+        }
 
-        Text("Kernaussagen", fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+        Text("Kurzpunkte", fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        summary.keyPoints.forEach { point ->
+        summary.keyPoints.take(3).forEach { point ->
             Text("• $point", color = TldhTextMuted)
         }
 
-        Spacer(Modifier.height(18.dp))
-        Text("Tags", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(14.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            summary.tags.forEach { tag -> AssistChip(onClick = {}, label = { Text(tag) }) }
+            summary.tags.take(5).forEach { tag -> AssistChip(onClick = {}, label = { Text(tag) }) }
         }
 
-        Spacer(Modifier.height(18.dp))
-        Text("Antwortvorschläge", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        summary.replySuggestions.forEach { reply ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF220A1C)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(reply.tone, color = TldhHotPurple, fontWeight = FontWeight.Bold)
-                    Text(reply.text, color = TldhTextMuted)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { context.copyToClipboard(reply.text) }) { Text("Copy") }
-                }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = { context.copyToClipboard(formatSummary(summary)) }) { Text("Copy All") }
+            summary.transcript?.let { transcript ->
+                OutlinedButton(onClick = { context.copyToClipboard(transcript) }) { Text("Copy Transcript") }
             }
         }
 
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { context.copyToClipboard(formatSummary(summary)) }) { Text("Copy All") }
-            OutlinedButton(onClick = { sessionManager.wipeCurrentSession() }) { Text("Delete Session") }
+            TextButton(onClick = { showDetails = !showDetails }) {
+                Text(if (showDetails) "Details ausblenden" else "Technische Details")
+            }
+            TextButton(onClick = { sessionManager.wipeCurrentSession() }) { Text("Session löschen") }
+        }
+
+        if (showDetails) {
+            Spacer(Modifier.height(12.dp))
+            DetailsBlock(summary)
+        }
+    }
+}
+
+@Composable
+private fun TldrBlock(text: String) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B0B22)),
+        shape = RoundedCornerShape(22.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = text,
+            color = Color(0xFFFFEAF5),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun TranscriptBlock(transcript: String) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E0818)),
+        shape = RoundedCornerShape(22.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text("Transkript", color = TldhHotPurple, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                transcript,
+                color = Color(0xFFFBE8F3),
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailsBlock(summary: AudioSummary) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF12050F)),
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            summary.transcriptionStatus?.let {
+                Text(it, color = TldhSuccess, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+            }
+            summary.technicalDetails.forEach { detail -> Text("• $detail", color = TldhTextMuted) }
+            summary.category?.let {
+                Spacer(Modifier.height(8.dp))
+                Text("Kategorie: $it", color = TldhTextMuted)
+            }
+            if (summary.replySuggestions.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Text("Antwortvorschläge", color = TldhHotPurple, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                summary.replySuggestions.forEach { reply ->
+                    Text("[${reply.tone}] ${reply.text}", color = TldhTextMuted)
+                }
+            }
         }
     }
 }
@@ -439,25 +511,28 @@ private fun Context.copyToClipboard(text: String) {
 }
 
 private fun formatSummary(summary: AudioSummary): String = buildString {
-    appendLine("tl;dh — too long; didn't hear")
+    appendLine("tl;dh — Long story, short.")
     appendLine()
     appendLine("TL;DR")
     appendLine(summary.tldr)
     appendLine()
-    if (summary.warnings.isNotEmpty()) {
-        appendLine("Hinweise / Guardrails")
-        summary.warnings.forEach { appendLine("- $it") }
+    summary.transcript?.let {
+        appendLine("Transkript")
+        appendLine(it)
         appendLine()
     }
-    appendLine("Kernaussagen")
-    summary.keyPoints.forEach { appendLine("- $it") }
+    if (summary.warnings.isNotEmpty()) {
+        appendLine("Hinweise / Guardrails")
+        summary.warnings.take(4).forEach { appendLine("- $it") }
+        appendLine()
+    }
+    appendLine("Kurzpunkte")
+    summary.keyPoints.take(4).forEach { appendLine("- $it") }
     appendLine()
     appendLine("Tags: ${summary.tags.joinToString(", ")}")
     summary.category?.let { appendLine("Kategorie: $it") }
-    appendLine()
-    appendLine("Antwortvorschläge")
-    summary.replySuggestions.forEach { appendLine("[${it.tone}] ${it.text}") }
 }
+
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / 1024.0 / 1024.0)

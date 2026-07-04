@@ -8,7 +8,7 @@
 
 Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.2.5` bootstrap line. Share Target, audio ingest hardening, duration guardrails and the manual stable updater are implemented. Real local transcription starts in `v0.3.0`.
+> **Status:** `v0.3.0` local transcription spike. Share Target, audio ingest, duration guardrails, one-APK updater and the first device-level local transcription path are implemented. Native `whisper.cpp` hardening is next.
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
 ![Android](https://img.shields.io/badge/Android-local--first-A50B5E)
@@ -27,12 +27,12 @@ WhatsApp voice notes are often long, unstructured, and time-expensive. `tl;dh` l
 - reply suggestions
 - copy-ready output
 
-The current bootstrap summarizer is still fake; it proves Share Target, local audio ingest, duration guardrails, UI and release/update plumbing before the real STT stack lands.
+The current spike attempts local device transcription first. If the Android on-device file recognizer is unavailable or unreliable, tl;dh falls back to the validated audio-ingest/guardrail output instead of pretending a transcript exists.
 
 ## MVP flow
 
 ```text
-WhatsApp audio → Android Sharesheet → tl;dh → local inspect/transcribe/summarize → copy result → session wipe
+WhatsApp audio → Android Sharesheet → tl;dh → local inspect → duration gate → local transcription spike → compact output → copy result → session wipe
 ```
 
 ## Supported sources
@@ -74,13 +74,14 @@ tldh-<version>.apk
 Example:
 
 ```text
-tldh-0.2.5.apk
+tldh-0.3.0.apk
 ```
 
 This one app includes:
 
 - offline-capable Share Target and audio ingest
 - duration guardrails for long voice notes
+- first local transcription spike when device support is available
 - manual stable in-app update check
 - APK download with SHA256 verification
 - Android installer handoff after explicit user confirmation
@@ -123,7 +124,7 @@ ANDROID_KEY_PASSWORD
 
 ## Release discipline
 
-- SemVer tags: `v0.2.5`, `v0.3.0`, ...
+- SemVer tags: `v0.3.0`, `v0.3.1`, ...
 - `versionName` follows SemVer
 - `versionCode` is monotonically increasing
 - release APKs are signed with the same key for update compatibility
@@ -153,7 +154,8 @@ A release is eligible only if:
 | `0.2.2` | Single APK release model with in-app updater |
 | `0.2.4` | Duration probing and long-audio guardrails |
 | `0.2.5` | Brand refresh, app icon/banner update, bottom breathing room and guarded update downloads |
-| `0.3.0` | Local `whisper.cpp` transcription spike |
+| `0.3.0` | Local transcription spike with Android on-device file recognition and PCM preparation |
+| `0.3.1` | Native `whisper.cpp` hardening and bundled local model strategy |
 | `0.4.0` | Session wipe + privacy hardening |
 | `0.5.0` | TL;DR + key points |
 | `0.6.0` | Tags + categories |
@@ -182,3 +184,13 @@ Duration warnings are now shown directly below the TL;DR and included in the cop
 - App UI receives more bottom breathing room for large scrollable result cards.
 - Manual APK update downloads now keep the device awake during the foreground download and show clearer interruption guidance instead of collapsing into a generic GitHub/network error.
 - The v0.3.0 transcription spike is planned from the validated 4:45 min WhatsApp OGG_OPUS Share protocol in `docs/planning/v0.3.0-whisper-spike.md`.
+
+
+## v0.3.0 Local transcription spike
+
+- Result cards are shorter: TL;DR, optional transcript, guardrails, short points, tags.
+- Technical ingest details moved behind a details toggle to reduce text walls.
+- The TL;DR card has higher contrast against the dark `#a50b5e` UI direction.
+- Shared audio is decoded through Android's media stack and converted to 16 kHz mono PCM for the local recognizer path.
+- The spike uses Android's on-device file recognition when the device supports it. If not, the app clearly reports that fallback state and keeps the previous validated ingest/guardrail behavior.
+- Native `whisper.cpp` remains the next hardening step after proving the local file-transcription path on the Magic V2.
