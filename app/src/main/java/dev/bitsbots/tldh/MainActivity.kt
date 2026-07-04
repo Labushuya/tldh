@@ -5,25 +5,26 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableStateOf
 import dev.bitsbots.tldh.session.SessionManager
 import dev.bitsbots.tldh.ui.TldhApp
 import dev.bitsbots.tldh.ui.theme.TldhTheme
 
 class MainActivity : ComponentActivity() {
     private lateinit var sessionManager: SessionManager
-    private var latestShareIntent: Intent? = null
+    private val shareIntentState = mutableStateOf<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         sessionManager = SessionManager(filesDir = filesDir, cacheDir = cacheDir)
         sessionManager.wipeOrphanedSessions()
-        latestShareIntent = intent
+        shareIntentState.value = intent
 
         setContent {
             TldhTheme {
                 TldhApp(
-                    initialIntent = latestShareIntent,
+                    currentIntent = shareIntentState.value,
                     sessionManager = sessionManager,
                     updaterEnabled = BuildConfig.UPDATER_ENABLED,
                     appVersion = BuildConfig.VERSION_NAME,
@@ -35,8 +36,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        latestShareIntent = intent
         setIntent(intent)
+        shareIntentState.value = intent
     }
 
     override fun onDestroy() {

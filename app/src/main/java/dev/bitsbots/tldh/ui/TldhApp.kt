@@ -72,7 +72,7 @@ sealed interface TldhUiState {
 
 @Composable
 fun TldhApp(
-    initialIntent: Intent?,
+    currentIntent: Intent?,
     sessionManager: SessionManager,
     updaterEnabled: Boolean,
     appVersion: String,
@@ -81,8 +81,8 @@ fun TldhApp(
     val context = LocalContext.current
     var state by remember { mutableStateOf<TldhUiState>(TldhUiState.Idle) }
 
-    LaunchedEffect(initialIntent) {
-        val sharedAudio = ShareIntentReader.read(initialIntent)
+    LaunchedEffect(currentIntent) {
+        val sharedAudio = ShareIntentReader.read(currentIntent)
         if (sharedAudio != null) {
             state = TldhUiState.Processing
             sessionManager.newSessionId()
