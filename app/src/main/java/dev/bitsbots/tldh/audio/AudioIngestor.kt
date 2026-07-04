@@ -6,42 +6,52 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import dev.bitsbots.tldh.share.SharedAudio
 
+private const val UNKNOWN_SIZE: Long = -1L
+
 data class AudioMetadata(
     val uri: Uri,
     val displayName: String?,
     val mimeType: String?,
     val sizeBytes: Long?,
     val format: AudioFormat,
-    val headerBytes: ByteArray
+    val headerBytes: ByteArray,
+    val extension: String?,
+    val headerProbeBytes: Int,
+    val validation: AudioValidation
 )
 
 class AudioIngestor(private val context: Context) {
     fun inspect(sharedAudio: SharedAudio): AudioMetadata {
         val resolver = context.contentResolver
-        val displayName = queryDisplayName(sharedAudio.uri)
-        val size = querySize(sharedAudio.uri)
+        val displayName = queryDisplayName(sharedAudio.uri) ?: sharedAudio.uri.lastPathSegment?.substringAfterLast('/')
+        val size = querySize(sharedAudio.uri)?.takeIf { it >= 0L }
         val mime = sharedAudio.mimeType ?: resolver.getType(sharedAudio.uri)
         val header = resolver.openInputStream(sharedAudio.uri)?.use { input ->
-            ByteArray(4096).also { buffer ->
-                val read = input.read(buffer)
-                if (read < 0) return@use ByteArray(0)
-                return@use buffer.copyOf(read)
-            }
+            val buffer = ByteArray(AudioIngestPolicy.MAX_HEADER_PROBE_BYTES)
+            val read = input.read(buffer)
+            if (read < 0) ByteArray(0) else buffer.copyOf(read)
         } ?: ByteArray(0)
-
-        return AudioMetadata(
+        val format = AudioFormatDetector.detect(header, displayName, mime)
+        val metadataWithoutValidation = AudioMetadata(
             uri = sharedAudio.uri,
             displayName = displayName,
             mimeType = mime,
             sizeBytes = size,
-            format = AudioFormatDetector.detect(header, displayName, mime),
-            headerBytes = header
+            format = format,
+            headerBytes = header,
+            extension = displayName?.substringAfterLast('.', missingDelimiterValue = "")?.takeIf { it.isNotBlank() }?.lowercase(),
+            headerProbeBytes = header.size,
+            validation = AudioValidation(accepted = false, rejectReasons = emptyList(), warnings = emptyList())
         )
+        val validation = AudioIngestPolicy.validate(metadataWithoutValidation)
+        val metadata = metadataWithoutValidation.copy(validation = validation)
+        if (!validation.accepted) throw AudioIngestException(metadata, validation.rejectReasons)
+        return metadata
     }
 
     private fun queryDisplayName(uri: Uri): String? = query(uri, OpenableColumns.DISPLAY_NAME)
 
-    private fun querySize(uri: Uri): Long? = query(uri, OpenableColumns.SIZE)?.toLongOrNull()
+    private fun querySize(uri: Uri): Long? = query(uri, OpenableColumns.SIZE)?.toLongOrNull() ?: UNKNOWN_SIZE
 
     private fun query(uri: Uri, column: String): String? {
         return runCatching {
