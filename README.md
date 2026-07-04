@@ -6,9 +6,9 @@
 
 **too long; didn't hear**
 
-Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline, and session-only.
+Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.1.0` bootstrap. The Share Target and UI flow are implemented with a fake summarizer. Real local transcription starts in `v0.3.0`.
+> **Status:** `v0.2.2` bootstrap line. Share Target, audio ingest hardening and the manual stable updater are implemented. Real local transcription starts in `v0.3.0`.
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
 ![Android](https://img.shields.io/badge/Android-local--first-8B5CF6)
@@ -26,6 +26,8 @@ WhatsApp voice notes are often long, unstructured, and time-expensive. `tl;dh` l
 - category
 - reply suggestions
 - copy-ready output
+
+The current bootstrap summarizer is still fake; it proves Share Target, local audio ingest, UI and release/update plumbing before the real STT stack lands.
 
 ## MVP flow
 
@@ -55,16 +57,34 @@ Core behavior:
 - no persistent audio/transcript/result storage
 - session files wiped on start and explicit close
 
+`tl;dh` is a single APK. The app is fully usable offline. Internet is only used when the user manually taps the in-app update check.
+
 Important: Android does not guarantee every lifecycle callback after a hard process kill. `tl;dh` therefore wipes orphaned session files at next startup. Clipboard content is controlled by Android after you copy text.
 
-## Build flavors
+## Single APK release model
 
-| Flavor | Internet permission | Purpose |
-|---|---:|---|
-| `offlineRelease` | No | Maximum privacy/local-only build |
-| `updaterRelease` | Yes | Manual GitHub stable-release update check and APK installer |
+There are no split `offline`/`updater` release variants anymore.
 
-The audio pipeline remains local in both flavors. The updater flavor must never perform silent/background checks in the MVP.
+The release asset is exactly one APK:
+
+```text
+tldh-<version>.apk
+```
+
+Example:
+
+```text
+tldh-0.2.2.apk
+```
+
+This one app includes:
+
+- offline-capable Share Target and audio ingest
+- manual stable in-app update check
+- APK download with SHA256 verification
+- Android installer handoff after explicit user confirmation
+
+No background update polling. No silent installs. No notification-based stale updater UI.
 
 ## Technical baseline
 
@@ -79,16 +99,16 @@ The audio pipeline remains local in both flavors. The updater flavor must never 
 
 ## Local build
 
-This repository includes `scripts/gradle.sh`, which uses an existing Gradle installation or bootstraps Gradle `9.4.1` locally.
+This repository includes `scripts/gradle.sh`, which uses an existing Gradle installation or bootstraps Gradle locally.
 
 ```bash
-bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest assembleOfflineDebug
+bash scripts/gradle.sh lintDebug testDebugUnitTest assembleDebug
 ```
 
-Build release APKs:
+Build the signed release APK in CI with:
 
 ```bash
-bash scripts/gradle.sh assembleOfflineRelease assembleUpdaterRelease
+bash scripts/gradle.sh assembleRelease
 ```
 
 For real signed releases, configure:
@@ -102,11 +122,11 @@ ANDROID_KEY_PASSWORD
 
 ## Release discipline
 
-- SemVer tags: `v0.1.0`, `v0.2.0`, ...
+- SemVer tags: `v0.2.2`, `v0.3.0`, ...
 - `versionName` follows SemVer
 - `versionCode` is monotonically increasing
-- Release APKs are signed with the same key for update compatibility
-- GitHub Releases include APKs, SHA256 sums, and `release-manifest.json`
+- release APKs are signed with the same key for update compatibility
+- GitHub Releases include one APK, SHA256 sums, and `release-manifest.json`
 
 ## Stable updater rule
 
@@ -117,7 +137,7 @@ A release is eligible only if:
 - not draft
 - not prerelease
 - valid SemVer tag
-- APK asset exists
+- exact APK asset `tldh-<version>.apk` exists
 - SHA256 exists and verifies
 - not yanked
 - stable release manifest validates
@@ -128,12 +148,13 @@ A release is eligible only if:
 |---:|---|
 | `0.1.0` | Share Target MVP + fake summarizer |
 | `0.2.0` | Audio ingest + Ogg/Opus detection hardening |
-| `0.3.0` | Local `whisper.cpp` transcription |
+| `0.2.1` | Manual stable updater MVP |
+| `0.2.2` | Single APK release model with in-app updater |
+| `0.3.0` | Local `whisper.cpp` transcription spike |
 | `0.4.0` | Session wipe + privacy hardening |
 | `0.5.0` | TL;DR + key points |
 | `0.6.0` | Tags + categories |
 | `0.7.0` | Reply suggestions |
-| `0.8.0` | Manual stable in-app updater |
 | `0.9.0` | Testing, benchmarking, RC |
 | `1.0.0` | Public stable release |
 

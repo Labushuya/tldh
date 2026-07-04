@@ -126,11 +126,11 @@ fun TldhApp(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Header(appVersion = appVersion, channel = channel, updaterEnabled = updaterEnabled)
+            Header(appVersion = appVersion, channel = channel)
             Spacer(Modifier.height(28.dp))
             Column(Modifier.widthIn(max = 920.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 when (val current = state) {
-                    TldhUiState.Idle -> IdleCard(updaterEnabled)
+                    TldhUiState.Idle -> IdleCard()
                     TldhUiState.Processing -> ProcessingCard()
                     is TldhUiState.Result -> ResultCard(current.summary, sessionManager)
                     is TldhUiState.Error -> ErrorCard(current.message)
@@ -144,21 +144,21 @@ fun TldhApp(
 }
 
 @Composable
-private fun Header(appVersion: String, channel: String, updaterEnabled: Boolean) {
+private fun Header(appVersion: String, channel: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("tl;dh", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Black)
         Text("too long; didn't hear", color = TldhTextMuted, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         Text(
-            "v$appVersion · $channel${if (updaterEnabled) " · manual stable updater" else " · fully offline"}",
-            color = if (updaterEnabled) TldhHotPurple else TldhSuccess,
+            "v$appVersion · $channel · manual stable updater",
+            color = TldhHotPurple,
             style = MaterialTheme.typography.labelLarge
         )
     }
 }
 
 @Composable
-private fun IdleCard(updaterEnabled: Boolean) {
+private fun IdleCard() {
     TldhCard {
         Text("Audio rein. Punkt raus.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
@@ -168,8 +168,8 @@ private fun IdleCard(updaterEnabled: Boolean) {
         )
         Spacer(Modifier.height(18.dp))
         Text(
-            if (updaterEnabled) "Updater-Flavor: Update-Checks laufen nur manuell, wenn Internet vorhanden ist. Keine Hintergrunddienste." else "Offline-Flavor: keine Internet-Permission, keine Update-Prüfung in der App.",
-            color = if (updaterEnabled) TldhHotPurple else TldhSuccess
+            "Eine App, eine APK: Die Core-Funktion läuft offline. Update-Checks startest du nur manuell, wenn Internet vorhanden ist. Keine Hintergrunddienste, keine Telemetrie.",
+            color = TldhSuccess
         )
     }
 }
@@ -203,7 +203,7 @@ private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
                             updateState = runCatching {
                                 val client = GitHubReleaseClient(repositorySlug)
                                 val releases = client.fetchStableReleases()
-                                val update = StableReleaseSelector(assetNameContains = "tldh-updater-").select(appVersion, releases)
+                                val update = StableReleaseSelector().select(appVersion, releases)
                                 if (update == null) ManualUpdateUiState.UpToDate else ManualUpdateUiState.Available(update)
                             }.getOrElse { error -> ManualUpdateUiState.Error(error.message ?: "Update-Prüfung fehlgeschlagen.") }
                         }
@@ -222,7 +222,7 @@ private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
             }
 
             ManualUpdateUiState.UpToDate -> {
-                Text("Du nutzt bereits den aktuellsten stabilen Updater-Release.", color = TldhSuccess)
+                Text("Du nutzt bereits den aktuellsten stabilen Release.", color = TldhSuccess)
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { updateState = ManualUpdateUiState.Idle }) { Text("Erneut prüfen") }
             }

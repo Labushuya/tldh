@@ -1,65 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-  echo "Usage: $0 <version> <versionCode> <offlineApk> <updaterApk>" >&2
-  exit 2
-fi
+VERSION="${1:?version required, e.g. 0.2.2}"
+VERSION_CODE="${2:?versionCode required}"
+APK_PATH="${3:?apk path required}"
+CHANNEL="${4:-stable}"
 
-VERSION="$1"
-VERSION_CODE="$2"
-OFFLINE_APK="$3"
-UPDATER_APK="$4"
-
-python - "$VERSION" "$VERSION_CODE" "$OFFLINE_APK" "$UPDATER_APK" <<'PY'
+python3 - "$VERSION" "$VERSION_CODE" "$APK_PATH" "$CHANNEL" <<'PY'
 import hashlib
 import json
 import os
-import pathlib
-import re
 import sys
+from pathlib import Path
 
-version, version_code_raw, offline_raw, updater_raw = sys.argv[1:5]
-
-if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-    raise SystemExit(f"Invalid SemVer version: {version!r}")
+version, version_code_raw, apk_path_raw, channel = sys.argv[1:5]
+apk_path = Path(apk_path_raw)
+if not apk_path.is_file():
+    raise SystemExit(f"APK not found: {apk_path}")
 try:
     version_code = int(version_code_raw)
 except ValueError as exc:
-    raise SystemExit(f"Invalid versionCode: {version_code_raw!r}") from exc
-if version_code <= 0:
-    raise SystemExit("versionCode must be positive")
+    raise SystemExit(f"versionCode must be an integer: {version_code_raw}") from exc
 
-def apk_payload(raw_path: str, kind: str) -> dict:
-    path = pathlib.Path(raw_path)
-    if not path.is_file():
-        raise SystemExit(f"Missing {kind} APK: {path}")
-    data = path.read_bytes()
-    if not data:
-        raise SystemExit(f"{kind} APK is empty: {path}")
-    return {
-        "name": path.name,
-        "sha256": hashlib.sha256(data).hexdigest(),
-        "sizeBytes": len(data),
-    }
-
+sha256 = hashlib.sha256(apk_path.read_bytes()).hexdigest()
 manifest = {
-    "schemaVersion": 1,
     "version": version,
     "versionCode": version_code,
-    "channel": "stable",
-    "yanked": False,
+    "channel": channel,
     "minSdk": 28,
     "targetSdk": 36,
     "apk": {
-        "offline": apk_payload(offline_raw, "offline"),
-        "updater": apk_payload(updater_raw, "updater"),
+        "name": apk_path.name,
+        "sha256": sha256,
+        "sizeBytes": apk_path.stat().st_size,
     },
     "notes": {
-        "summary": f"Stable tl;dh release {version}",
+        "summary": f"tl;dh stable release {version}",
+        "changelogUrl": "CHANGELOG.md",
     },
+    "yanked": False,
 }
-
-json.dump(manifest, sys.stdout, indent=2, sort_keys=True)
-sys.stdout.write("\n")
+Path("release-manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY

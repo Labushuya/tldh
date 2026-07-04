@@ -16,5 +16,7 @@ Please open a private security advisory on GitHub or contact the maintainer priv
 - no analytics
 - no telemetry
 - no persistent audio/transcript/result storage
-- no Internet permission in the offline flavor
-- updater flavor limited to manual GitHub stable-release checks
+- fully offline-capable core app behavior
+- network access only for explicit manual GitHub stable-release update checks
+- SHA256 verification before APK install handoff
+- no background update polling or silent installation

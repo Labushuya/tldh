@@ -1,55 +1,51 @@
 #!/usr/bin/env python3
 import json
-import pathlib
 import re
 import sys
+from pathlib import Path
 
-if len(sys.argv) != 2:
-    raise SystemExit("Usage: verify-stable-release.py <release-manifest.json>")
-
-manifest_path = pathlib.Path(sys.argv[1])
+manifest_path = Path(sys.argv[1] if len(sys.argv) > 1 else "release-manifest.json")
 if not manifest_path.is_file():
-    raise SystemExit(f"Manifest file does not exist: {manifest_path}")
-text = manifest_path.read_text(encoding="utf-8").strip()
-if not text:
-    raise SystemExit(f"Manifest file is empty: {manifest_path}")
-
+    print(f"ERROR: manifest not found: {manifest_path}")
+    sys.exit(1)
+raw = manifest_path.read_text(encoding="utf-8").strip()
+if not raw:
+    print(f"ERROR: manifest is empty: {manifest_path}")
+    sys.exit(1)
 try:
-    manifest = json.loads(text)
+    manifest = json.loads(raw)
 except json.JSONDecodeError as exc:
-    raise SystemExit(f"Manifest is not valid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}") from exc
+    print(f"ERROR: manifest is not valid JSON: {exc}")
+    sys.exit(1)
 
-errors: list[str] = []
-
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        errors.append(message)
-
-version = manifest.get("version")
-require(isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version or "") is not None, "version must be SemVer X.Y.Z")
-version_code = manifest.get("versionCode")
-require(isinstance(version_code, int) and version_code > 0, "versionCode must be a positive integer")
-require(manifest.get("channel") == "stable", "channel must be stable")
-require(manifest.get("yanked") is False, "yanked must be false for stable releases")
-require(isinstance(manifest.get("schemaVersion"), int), "schemaVersion must be an integer")
-
-apk = manifest.get("apk")
-require(isinstance(apk, dict), "apk must be an object")
-if isinstance(apk, dict):
-    for flavor in ("offline", "updater"):
-        entry = apk.get(flavor)
-        require(isinstance(entry, dict), f"apk.{flavor} must be an object")
-        if isinstance(entry, dict):
-            name = entry.get("name")
-            sha = entry.get("sha256")
-            size = entry.get("sizeBytes")
-            require(isinstance(name, str) and name.endswith(".apk"), f"apk.{flavor}.name must be an APK filename")
-            require(isinstance(sha, str) and re.fullmatch(r"[a-fA-F0-9]{64}", sha or "") is not None, f"apk.{flavor}.sha256 must be a 64-char SHA256")
-            require(isinstance(size, int) and size > 0, f"apk.{flavor}.sizeBytes must be positive")
+errors = []
+version = str(manifest.get("version", ""))
+if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+    errors.append("version must be SemVer without leading v")
+if not isinstance(manifest.get("versionCode"), int) or manifest.get("versionCode", 0) <= 0:
+    errors.append("versionCode must be a positive integer")
+if manifest.get("channel") != "stable":
+    errors.append("channel must be stable")
+if manifest.get("yanked") is not False:
+    errors.append("yanked must be false")
+apk = manifest.get("apk", {})
+if not isinstance(apk, dict):
+    errors.append("apk must be an object")
+else:
+    expected_name = f"tldh-{version}.apk" if version else None
+    if apk.get("name") != expected_name:
+        errors.append(f"apk.name must be {expected_name}")
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", str(apk.get("sha256", ""))):
+        errors.append("apk.sha256 must be a 64-char hex digest")
+    try:
+        size = int(apk.get("sizeBytes", 0))
+    except Exception:
+        size = 0
+    if size <= 0:
+        errors.append("apk.sizeBytes must be positive")
 
 if errors:
     for error in errors:
-        print(f"ERROR: {error}", file=sys.stderr)
-    raise SystemExit(1)
-
-print(f"Stable manifest OK: v{version} ({version_code})")
+        print(f"ERROR: {error}")
+    sys.exit(1)
+print("stable release manifest verified")

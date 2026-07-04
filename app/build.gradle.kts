@@ -5,10 +5,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.2.1"
+    ?: "0.2.2"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "201").toInt()
+    ?: "202").toInt()
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 val githubRepositoryRaw = (findProperty("GITHUB_REPOSITORY") as String?)
@@ -27,24 +27,13 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         buildConfigField("String", "GITHUB_REPOSITORY", "\"$githubRepository\"")
+        buildConfigField("boolean", "UPDATER_ENABLED", "true")
+        resValue("string", "distribution_channel", "stable")
 
         vectorDrawables {
             useSupportLibrary = true
-        }
-    }
-
-    flavorDimensions += "distribution"
-    productFlavors {
-        create("offline") {
-            dimension = "distribution"
-            resValue("string", "distribution_channel", "offline")
-            buildConfigField("boolean", "UPDATER_ENABLED", "false")
-        }
-        create("updater") {
-            dimension = "distribution"
-            resValue("string", "distribution_channel", "updater")
-            buildConfigField("boolean", "UPDATER_ENABLED", "true")
         }
     }
 
@@ -81,7 +70,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
 
     buildFeatures {
         compose = true

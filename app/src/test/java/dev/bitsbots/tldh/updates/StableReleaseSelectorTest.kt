@@ -6,21 +6,22 @@ import org.junit.Test
 
 class StableReleaseSelectorTest {
     @Test
-    fun selectsHighestStableReleaseWithApkAndChecksum() {
+    fun selectsHighestStableSingleApkReleaseWithChecksum() {
         val releases = listOf(
-            GitHubRelease("v0.3.0", draft = false, prerelease = true, assets = listOf(asset("tldh.apk", "abc"))),
-            GitHubRelease("v0.2.0", draft = false, prerelease = false, assets = listOf(asset("tldh.apk", "abc"))),
-            GitHubRelease("v0.4.0", draft = false, prerelease = false, yanked = true, assets = listOf(asset("tldh.apk", "abc"))),
-            GitHubRelease("v0.5.0", draft = false, prerelease = false, assets = listOf(asset("tldh.apk", null)))
+            GitHubRelease("v0.3.0", draft = false, prerelease = true, assets = listOf(asset("tldh-0.3.0.apk", "abc"))),
+            GitHubRelease("v0.2.0", draft = false, prerelease = false, assets = listOf(asset("tldh-0.2.0.apk", "abc"))),
+            GitHubRelease("v0.4.0", draft = false, prerelease = false, yanked = true, assets = listOf(asset("tldh-0.4.0.apk", "abc"))),
+            GitHubRelease("v0.5.0", draft = false, prerelease = false, assets = listOf(asset("tldh-0.5.0.apk", null)))
         )
 
         val selected = StableReleaseSelector().select("0.1.0", releases)
 
         assertEquals(SemVer(0, 2, 0), selected?.version)
+        assertEquals("tldh-0.2.0.apk", selected?.apk?.name)
     }
 
     @Test
-    fun prefersConfiguredUpdaterAssetWhenRequested() {
+    fun ignoresLegacySplitFlavorAssets() {
         val releases = listOf(
             GitHubRelease(
                 "v0.2.1",
@@ -33,14 +34,14 @@ class StableReleaseSelectorTest {
             )
         )
 
-        val selected = StableReleaseSelector(assetNameContains = "tldh-updater-").select("0.2.0", releases)
+        val selected = StableReleaseSelector().select("0.2.0", releases)
 
-        assertEquals("tldh-updater-0.2.1.apk", selected?.apk?.name)
+        assertNull(selected)
     }
 
     @Test
     fun returnsNullWhenNothingNewIsStable() {
-        val releases = listOf(GitHubRelease("v0.1.0", draft = false, prerelease = false, assets = listOf(asset("tldh.apk", "abc"))))
+        val releases = listOf(GitHubRelease("v0.1.0", draft = false, prerelease = false, assets = listOf(asset("tldh-0.1.0.apk", "abc"))))
         assertNull(StableReleaseSelector().select("0.1.0", releases))
     }
 

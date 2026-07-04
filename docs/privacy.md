@@ -2,13 +2,24 @@
 
 `tl;dh` is designed for local, temporary processing.
 
-## Offline flavor
+## Core principle
 
-The `offlineRelease` flavor has no Internet permission and no updater.
+The app is fully usable offline. Sharing and inspecting WhatsApp/Telegram audio does not require internet access.
 
-## Updater flavor
+The app has internet permission only because the single release APK includes a manual in-app update check. No update check runs automatically.
 
-The `updaterRelease` flavor has Internet permission only for manual GitHub stable-release checks. It must not perform silent background checks in the MVP.
+## Network behavior
+
+Network access is only used when the user explicitly taps `Nach stabilem Update suchen`.
+
+The update check:
+
+- queries GitHub Releases for the configured repository
+- ignores draft/prerelease/yanked releases
+- selects a stable SemVer release with exact `tldh-<version>.apk`
+- verifies SHA256 before install handoff
+
+There is no analytics, telemetry, account system or cloud audio processing.
 
 ## Session data
 
