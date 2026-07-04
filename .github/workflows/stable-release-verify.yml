@@ -1,32 +1,25 @@
-name: tl;dh - Stable Manifest Verify
-run-name: "Stable Manifest Verify - ${{ github.ref_name }}"
+name: "tldh - Verify Stable Manifest"
+run-name: "Verify Stable Manifest - ${{ github.ref_name }}"
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     paths:
-      - 'release-manifest.json'
       - 'scripts/verify-stable-release.py'
+      - 'scripts/create-release-manifest.sh'
+      - '.github/workflows/stable-release-verify.yml'
 
 permissions:
   contents: read
 
 jobs:
-  verify_manifest:
-    name: Verify stable release manifest
+  verify_manifest_tools:
+    name: "Verify stable manifest tooling"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Verify manifest if present
+
+      - name: Verify Python manifest checker syntax
         run: |
-          set -euo pipefail
-          if [ -f release-manifest.json ]; then
-            python scripts/verify-stable-release.py release-manifest.json
-          else
-            echo "No root release-manifest.json present. Nothing to verify."
-          fi
+          python -m py_compile scripts/verify-stable-release.py

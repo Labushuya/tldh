@@ -20,6 +20,25 @@ class StableReleaseSelectorTest {
     }
 
     @Test
+    fun prefersConfiguredUpdaterAssetWhenRequested() {
+        val releases = listOf(
+            GitHubRelease(
+                "v0.2.1",
+                draft = false,
+                prerelease = false,
+                assets = listOf(
+                    asset("tldh-offline-0.2.1.apk", "abc"),
+                    asset("tldh-updater-0.2.1.apk", "def")
+                )
+            )
+        )
+
+        val selected = StableReleaseSelector(assetNameContains = "tldh-updater-").select("0.2.0", releases)
+
+        assertEquals("tldh-updater-0.2.1.apk", selected?.apk?.name)
+    }
+
+    @Test
     fun returnsNullWhenNothingNewIsStable() {
         val releases = listOf(GitHubRelease("v0.1.0", draft = false, prerelease = false, assets = listOf(asset("tldh.apk", "abc"))))
         assertNull(StableReleaseSelector().select("0.1.0", releases))

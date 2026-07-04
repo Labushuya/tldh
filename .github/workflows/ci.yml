@@ -1,5 +1,5 @@
-name: tl;dh - CI + Auto Release
-run-name: "CI + Auto Release - ${{ github.ref_name }} - ${{ github.sha }}"
+name: "tldh - Build, Test and Auto Release"
+run-name: "Build, Test and Auto Release - ${{ github.ref_name }} - ${{ github.sha }}"
 
 on:
   push:
@@ -17,11 +17,42 @@ concurrency:
 
 jobs:
   verify_android:
-    name: Verify Android build
+    name: "Verify Android build"
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve app SemVer from Gradle defaults
+        id: version
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import pathlib
+          import re
+          text = pathlib.Path('app/build.gradle.kts').read_text(encoding='utf-8')
+
+          version_match = re.search(r'\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
+          code_match = re.search(r'\?:\s*"([0-9]+)"\)\.toInt\(\)', text)
+          if not code_match:
+              code_match = re.search(r'\?:\s*([0-9]+)\s*(?:\n|\r|;)', text)
+
+          if not version_match:
+              raise SystemExit('Could not resolve default SemVer from app/build.gradle.kts. Expected a fallback like ?: "0.2.1".')
+          if not code_match:
+              raise SystemExit('Could not resolve default versionCode from app/build.gradle.kts. Expected a fallback like ?: "201").toInt().')
+
+          version = version_match.group(1)
+          version_code = code_match.group(1)
+          print(f'version={version}')
+          print(f'version_code={version_code}')
+          print(f'tag_name=v{version}')
+          print(f'Resolved tl;dh version {version} ({version_code})', file=__import__('sys').stderr)
+          PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -56,7 +87,7 @@ jobs:
           retention-days: 14
 
   publish_stable_release:
-    name: Publish stable GitHub release
+    name: "Publish stable GitHub release"
     needs: verify_android
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -68,29 +99,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve app SemVer from Gradle
-        id: version
-        run: |
-          set -euo pipefail
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import pathlib, re
-          text = pathlib.Path('app/build.gradle.kts').read_text(encoding='utf-8')
-          version_match = re.search(r'val\s+resolvedVersionName\s*=\s*\(project\.findProperty\("VERSION_NAME"\)\s+as\s+String\?\)\s*\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
-          code_match = re.search(r'val\s+resolvedVersionCode\s*=\s*\(project\.findProperty\("VERSION_CODE"\)\s+as\s+String\?\)\?\.toInt\(\)\s*\?:\s*(\d+)', text)
-          if not version_match or not code_match:
-              raise SystemExit('Could not resolve default versionName/versionCode from app/build.gradle.kts')
-          version = version_match.group(1)
-          version_code = code_match.group(1)
-          print(f'version={version}')
-          print(f'version_code={version_code}')
-          print(f'tag_name=v{version}')
-          PY
-
       - name: Skip publish if stable release already exists
         id: existing
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          TAG_NAME: ${{ needs.verify_android.outputs.tag_name }}
         run: |
           set -euo pipefail
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
@@ -98,6 +111,7 @@ jobs:
             echo "Release $TAG_NAME already exists. Nothing to publish."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG_NAME does not exist yet. Publishing after successful verification."
           fi
 
       - name: Ensure signing secrets are present
@@ -136,23 +150,23 @@ jobs:
       - name: Build signed release APKs
         if: steps.existing.outputs.exists != 'true'
         env:
-          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/tldh-release.jks
+          ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/tldh-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           bash scripts/gradle.sh \
-            -PVERSION_NAME="${{ steps.version.outputs.version }}" \
-            -PVERSION_CODE="${{ steps.version.outputs.version_code }}" \
+            -PVERSION_NAME="${{ needs.verify_android.outputs.version }}" \
+            -PVERSION_CODE="${{ needs.verify_android.outputs.version_code }}" \
             assembleOfflineRelease assembleUpdaterRelease
 
       - name: Collect release APKs, checksums, and manifest
         if: steps.existing.outputs.exists != 'true'
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          VERSION_CODE="${{ steps.version.outputs.version_code }}"
+          VERSION="${{ needs.verify_android.outputs.version }}"
+          VERSION_CODE="${{ needs.verify_android.outputs.version_code }}"
           mkdir -p dist/release
           cp app/build/outputs/apk/offline/release/*.apk "dist/release/tldh-offline-$VERSION.apk"
           cp app/build/outputs/apk/updater/release/*.apk "dist/release/tldh-updater-$VERSION.apk"
@@ -166,12 +180,12 @@ jobs:
         if: steps.existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag_name }}
-          name: tl;dh ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.verify_android.outputs.tag_name }}
+          name: "tl;dh ${{ needs.verify_android.outputs.version }}"
           make_latest: true
           generate_release_notes: true
           files: |
-            dist/release/tldh-offline-${{ steps.version.outputs.version }}.apk
-            dist/release/tldh-updater-${{ steps.version.outputs.version }}.apk
+            dist/release/tldh-offline-${{ needs.verify_android.outputs.version }}.apk
+            dist/release/tldh-updater-${{ needs.verify_android.outputs.version }}.apk
             dist/release/SHA256SUMS.txt
             dist/release/release-manifest.json

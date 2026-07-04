@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +63,12 @@ import dev.bitsbots.tldh.ui.theme.TldhPurple
 import dev.bitsbots.tldh.ui.theme.TldhSuccess
 import dev.bitsbots.tldh.ui.theme.TldhSurface
 import dev.bitsbots.tldh.ui.theme.TldhTextMuted
+import dev.bitsbots.tldh.updates.ApkInstaller
+import dev.bitsbots.tldh.updates.GitHubReleaseClient
+import dev.bitsbots.tldh.updates.StableReleaseSelector
+import dev.bitsbots.tldh.updates.StableUpdate
+import kotlinx.coroutines.launch
+import java.io.File
 
 sealed interface TldhUiState {
     data object Idle : TldhUiState
@@ -70,13 +77,24 @@ sealed interface TldhUiState {
     data class Error(val message: String) : TldhUiState
 }
 
+private sealed interface ManualUpdateUiState {
+    data object Idle : ManualUpdateUiState
+    data object Checking : ManualUpdateUiState
+    data object UpToDate : ManualUpdateUiState
+    data class Available(val update: StableUpdate) : ManualUpdateUiState
+    data class Downloading(val update: StableUpdate, val progress: Float) : ManualUpdateUiState
+    data class ReadyToInstall(val update: StableUpdate, val apkFile: File) : ManualUpdateUiState
+    data class Error(val message: String) : ManualUpdateUiState
+}
+
 @Composable
 fun TldhApp(
     currentIntent: Intent?,
     sessionManager: SessionManager,
     updaterEnabled: Boolean,
     appVersion: String,
-    channel: String
+    channel: String,
+    repositorySlug: String
 ) {
     val context = LocalContext.current
     var state by remember { mutableStateOf<TldhUiState>(TldhUiState.Idle) }
@@ -110,12 +128,15 @@ fun TldhApp(
         ) {
             Header(appVersion = appVersion, channel = channel, updaterEnabled = updaterEnabled)
             Spacer(Modifier.height(28.dp))
-            Box(Modifier.widthIn(max = 920.dp)) {
+            Column(Modifier.widthIn(max = 920.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 when (val current = state) {
                     TldhUiState.Idle -> IdleCard(updaterEnabled)
                     TldhUiState.Processing -> ProcessingCard()
                     is TldhUiState.Result -> ResultCard(current.summary, sessionManager)
                     is TldhUiState.Error -> ErrorCard(current.message)
+                }
+                if (updaterEnabled) {
+                    ManualUpdaterCard(appVersion = appVersion, repositorySlug = repositorySlug)
                 }
             }
         }
@@ -147,9 +168,111 @@ private fun IdleCard(updaterEnabled: Boolean) {
         )
         Spacer(Modifier.height(18.dp))
         Text(
-            if (updaterEnabled) "Updater-Flavor: Update-Checks sind manuell vorgesehen. Keine Hintergrunddienste." else "Offline-Flavor: keine Internet-Permission, keine Update-Prüfung in der App.",
+            if (updaterEnabled) "Updater-Flavor: Update-Checks laufen nur manuell, wenn Internet vorhanden ist. Keine Hintergrunddienste." else "Offline-Flavor: keine Internet-Permission, keine Update-Prüfung in der App.",
             color = if (updaterEnabled) TldhHotPurple else TldhSuccess
         )
+    }
+}
+
+@Composable
+private fun ManualUpdaterCard(appVersion: String, repositorySlug: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updateState by remember { mutableStateOf<ManualUpdateUiState>(ManualUpdateUiState.Idle) }
+    val repositoryConfigured = repositorySlug.contains('/')
+
+    TldhCard {
+        Text("Updates", color = TldhHotPurple, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "tl;dh bleibt vollständig offline nutzbar. Diese Prüfung läuft nur, wenn du sie manuell startest und Internet vorhanden ist.",
+            color = TldhTextMuted
+        )
+        Spacer(Modifier.height(10.dp))
+        Text("Installiert: v$appVersion", color = TldhTextMuted)
+        Text("Repo: ${repositorySlug.ifBlank { "nicht konfiguriert" }}", color = TldhTextMuted)
+        Spacer(Modifier.height(14.dp))
+
+        when (val current = updateState) {
+            ManualUpdateUiState.Idle -> {
+                Button(
+                    enabled = repositoryConfigured,
+                    onClick = {
+                        scope.launch {
+                            updateState = ManualUpdateUiState.Checking
+                            updateState = runCatching {
+                                val client = GitHubReleaseClient(repositorySlug)
+                                val releases = client.fetchStableReleases()
+                                val update = StableReleaseSelector(assetNameContains = "tldh-updater-").select(appVersion, releases)
+                                if (update == null) ManualUpdateUiState.UpToDate else ManualUpdateUiState.Available(update)
+                            }.getOrElse { error -> ManualUpdateUiState.Error(error.message ?: "Update-Prüfung fehlgeschlagen.") }
+                        }
+                    }
+                ) { Text("Nach stabilem Update suchen") }
+                if (!repositoryConfigured) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("GitHub Repository wurde im Build nicht gesetzt. Release-Builds aus GitHub Actions konfigurieren das automatisch.", color = TldhDanger)
+                }
+            }
+
+            ManualUpdateUiState.Checking -> {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Text("Prüfe stabile GitHub Releases …", color = TldhTextMuted)
+            }
+
+            ManualUpdateUiState.UpToDate -> {
+                Text("Du nutzt bereits den aktuellsten stabilen Updater-Release.", color = TldhSuccess)
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { updateState = ManualUpdateUiState.Idle }) { Text("Erneut prüfen") }
+            }
+
+            is ManualUpdateUiState.Available -> {
+                Text("Stabiles Update verfügbar: v${current.update.version}", color = TldhSuccess, fontWeight = FontWeight.Bold)
+                Text(current.update.apk.name, color = TldhTextMuted)
+                current.update.apk.sizeBytes?.let { Text("Größe: ${formatBytes(it)}", color = TldhTextMuted) }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            updateState = ManualUpdateUiState.Downloading(current.update, 0f)
+                            updateState = runCatching {
+                                val file = GitHubReleaseClient(repositorySlug).downloadAsset(
+                                    asset = current.update.apk,
+                                    destinationDir = File(context.cacheDir, "updates"),
+                                    progress = { progress -> updateState = ManualUpdateUiState.Downloading(current.update, progress) }
+                                )
+                                ManualUpdateUiState.ReadyToInstall(current.update, file)
+                            }.getOrElse { error -> ManualUpdateUiState.Error(error.message ?: "Download fehlgeschlagen.") }
+                        }
+                    }) { Text("Download") }
+                    OutlinedButton(onClick = { updateState = ManualUpdateUiState.Idle }) { Text("Abbrechen") }
+                }
+            }
+
+            is ManualUpdateUiState.Downloading -> {
+                LinearProgressIndicator(progress = { current.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Text("Download läuft … ${(current.progress * 100).toInt()} %", color = TldhTextMuted)
+            }
+
+            is ManualUpdateUiState.ReadyToInstall -> {
+                Text("Download verifiziert. SHA256 korrekt.", color = TldhSuccess, fontWeight = FontWeight.Bold)
+                Text(current.update.apk.name, color = TldhTextMuted)
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = {
+                    context.startActivity(ApkInstaller(context).createInstallIntent(current.apkFile))
+                }) { Text("Installieren") }
+            }
+
+            is ManualUpdateUiState.Error -> {
+                Text("Update-Prüfung fehlgeschlagen", color = TldhDanger, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(current.message, color = TldhTextMuted)
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = { updateState = ManualUpdateUiState.Idle }) { Text("Zurück") }
+            }
+        }
     }
 }
 
@@ -286,4 +409,10 @@ private fun formatSummary(summary: AudioSummary): String = buildString {
     appendLine()
     appendLine("Antwortvorschläge")
     summary.replySuggestions.forEach { appendLine("[${it.tone}] ${it.text}") }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }

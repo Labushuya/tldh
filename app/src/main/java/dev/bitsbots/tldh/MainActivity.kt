@@ -28,7 +28,8 @@ class MainActivity : ComponentActivity() {
                     sessionManager = sessionManager,
                     updaterEnabled = BuildConfig.UPDATER_ENABLED,
                     appVersion = BuildConfig.VERSION_NAME,
-                    channel = getString(R.string.distribution_channel)
+                    channel = getString(R.string.distribution_channel),
+                    repositorySlug = BuildConfig.GITHUB_REPOSITORY
                 )
             }
         }

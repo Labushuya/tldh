@@ -6,16 +6,21 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-04
+
+### Added
+- Add manual stable in-app updater MVP for the updater flavor.
+- Add GitHub release client with SHA256 verification and updater APK selection.
+
+### Changed
+- Keep core app fully offline while allowing optional manual update checks in updater builds.
+
+
 ### Fixed
 
-- Removed the obsolete `org.jetbrains.kotlin.android` plugin for AGP 9 built-in Kotlin support.
-- Removed legacy Kotlin JVM target configuration that is now covered by Android compile options.
-- Kept the Compose compiler plugin, because Compose still needs its Kotlin compiler plugin setup.
-
-## [Unreleased]
-
-### Fixed
-- Enable AGP 9 resource value generation for flavor-specific `resValue` entries.
+- Reprocess shared audio intents delivered through `onNewIntent` so sharing a WhatsApp voice note into an already-running app updates the UI.
+- Build SemVer-named signed APKs through the release workflow instead of relying on CI debug artifacts for install testing.
+- Allow release workflows to inject `VERSION_NAME` and `VERSION_CODE` into Gradle builds.
 
 ## [0.1.0] - 2026-07-03
 
