@@ -34,24 +34,24 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import pathlib
           import re
+          import sys
           text = pathlib.Path('app/build.gradle.kts').read_text(encoding='utf-8')
-
-          version_match = re.search(r'\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
-          code_match = re.search(r'\?:\s*"([0-9]+)"\)\.toInt\(\)', text)
-          if not code_match:
-              code_match = re.search(r'\?:\s*([0-9]+)\s*(?:\n|\r|;)', text)
-
+          version_match = re.search(r'versionName\s*=\s*\([^\n]+?\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text, re.DOTALL)
           if not version_match:
-              raise SystemExit('Could not resolve default SemVer from app/build.gradle.kts. Expected a fallback like ?: "0.2.1".')
+              version_match = re.search(r'\?:\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
+          code_match = re.search(r'versionCode\s*=\s*\([^\n]+?\?:\s*"?([0-9]+)"?\)?\.toInt\(\)', text, re.DOTALL)
           if not code_match:
-              raise SystemExit('Could not resolve default versionCode from app/build.gradle.kts. Expected a fallback like ?: "201").toInt().')
-
+              code_match = re.search(r'\?:\s*"([0-9]+)"\)\.toInt\(\)', text)
+          if not version_match:
+              raise SystemExit('Could not resolve default SemVer from app/build.gradle.kts. Expected fallback like ?: "0.2.1".')
+          if not code_match:
+              raise SystemExit('Could not resolve default versionCode from app/build.gradle.kts. Expected fallback like ?: "201").toInt().')
           version = version_match.group(1)
           version_code = code_match.group(1)
           print(f'version={version}')
           print(f'version_code={version_code}')
           print(f'tag_name=v{version}')
-          print(f'Resolved tl;dh version {version} ({version_code})', file=__import__('sys').stderr)
+          print(f'Resolved tl;dh version {version} ({version_code})', file=sys.stderr)
           PY
 
       - name: Set up JDK 17
@@ -68,7 +68,6 @@ jobs:
           bash scripts/gradle.sh lintOfflineDebug testOfflineDebugUnitTest assembleOfflineDebug assembleUpdaterDebug
 
       - name: Collect debug APKs and checksums
-        if: success()
         run: |
           set -euo pipefail
           mkdir -p dist/debug
@@ -174,6 +173,8 @@ jobs:
           sha256sum *.apk > SHA256SUMS.txt
           cd ../..
           bash scripts/create-release-manifest.sh "$VERSION" "$VERSION_CODE" "dist/release/tldh-offline-$VERSION.apk" "dist/release/tldh-updater-$VERSION.apk" > dist/release/release-manifest.json
+          test -s dist/release/release-manifest.json
+          python -m json.tool dist/release/release-manifest.json >/dev/null
           python scripts/verify-stable-release.py dist/release/release-manifest.json
 
       - name: Create GitHub latest release

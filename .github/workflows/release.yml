@@ -42,7 +42,7 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<EOF_VERSION
           $VERSION
           EOF_VERSION
-          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
           if [ "$VERSION_CODE" -eq 0 ]; then
             VERSION_CODE=1
           fi
@@ -124,6 +124,8 @@ jobs:
           sha256sum *.apk > SHA256SUMS.txt
           cd ../..
           bash scripts/create-release-manifest.sh "$VERSION" "$VERSION_CODE" "dist/release/tldh-offline-$VERSION.apk" "dist/release/tldh-updater-$VERSION.apk" > dist/release/release-manifest.json
+          test -s dist/release/release-manifest.json
+          python -m json.tool dist/release/release-manifest.json >/dev/null
           python scripts/verify-stable-release.py dist/release/release-manifest.json
 
       - name: Create GitHub latest release

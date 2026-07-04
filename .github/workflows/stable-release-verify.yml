@@ -20,6 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify Python manifest checker syntax
+      - name: Verify manifest tooling syntax
         run: |
+          bash -n scripts/create-release-manifest.sh
           python -m py_compile scripts/verify-stable-release.py
