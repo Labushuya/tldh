@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2]
+
+### Fixed
+- Fixed Kotlin visibility errors caused by public benchmark APIs exposing internal audio types.
+- Fixed Compose card content receiver by using ColumnScope instead of the Column composable function as a type.
+- Published benchmark APK under stt-bench-v0.1.2 after the v0.1.1 compile failure.
+
 ## [0.1.1] - 2026-07-05
 
 ### Fixed

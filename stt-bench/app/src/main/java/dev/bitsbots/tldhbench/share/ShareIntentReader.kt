@@ -3,7 +3,7 @@ package dev.bitsbots.tldhbench.share
 import android.content.Intent
 import android.net.Uri
 
-internal data class SharedAudio(
+data class SharedAudio(
     val uri: Uri,
     val mimeType: String?
 )

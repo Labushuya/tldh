@@ -15,7 +15,7 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
-internal data class PreparedPcmAudio(
+data class PreparedPcmAudio(
     val file: File,
     val sampleRate: Int = TARGET_SAMPLE_RATE,
     val channelCount: Int = TARGET_CHANNEL_COUNT,
