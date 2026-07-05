@@ -1,4 +1,4 @@
-name: tldh-bench - Build, Test and Auto Release
+name: tldh STT Bench - Build, Test and Release
 
 on:
   push:
@@ -16,40 +16,51 @@ permissions:
   contents: write
 
 env:
-  VERSION_NAME: 0.1.0
-  VERSION_CODE: 100
-  RELEASE_TAG: stt-bench-v0.1.0
+  VERSION_NAME: 0.1.1
+  VERSION_CODE: 101
+  RELEASE_TAG: stt-bench-v0.1.1
 
 jobs:
   verify_benchmark_app:
-    name: Verify STT benchmark app
+    name: Verify benchmark Android app
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: stt-bench
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Build debug APK and run tests
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build debug benchmark APK and run tests
         run: bash scripts/gradle.sh lintDebug testDebugUnitTest assembleDebug
-      - name: Collect debug APK
+
+      - name: Collect debug benchmark APK
         if: success()
         run: |
           set -euo pipefail
           mkdir -p ../dist/stt-bench-debug
-          cp app/build/outputs/apk/debug/app-debug.apk ../dist/stt-bench-debug/tldh-stt-bench-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist/stt-bench-debug/INSTALL_THIS_tldh-stt-bench-${VERSION_NAME}-debug.apk
           (cd ../dist/stt-bench-debug && sha256sum *.apk > SHA256SUMS.txt)
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload debug benchmark artifact
         if: success()
+        uses: actions/upload-artifact@v4
         with:
-          name: tldh-stt-bench-debug-apk-${{ github.sha }}
+          name: INSTALL_THIS_tldh-stt-bench-debug-apk-${{ github.sha }}
           path: dist/stt-bench-debug/*
+          if-no-files-found: error
 
   publish_benchmark_release:
-    name: Publish STT benchmark APK release
+    name: Publish benchmark APK release
     needs: verify_benchmark_app
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -57,11 +68,18 @@ jobs:
       run:
         working-directory: stt-bench
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Check whether benchmark release already exists
         id: release_check
         env:
@@ -74,6 +92,7 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+
       - name: Prepare signing key when available
         if: steps.release_check.outputs.exists == 'false'
         env:
@@ -86,13 +105,15 @@ jobs:
           else
             echo "No signing secret set. Release will fall back to debug signing for benchmark-only installability."
           fi
+
       - name: Build benchmark release APK
         if: steps.release_check.outputs.exists == 'false'
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: bash scripts/gradle.sh assembleRelease
+        run: bash scripts/gradle.sh -PVERSION_NAME="${VERSION_NAME}" -PVERSION_CODE="${VERSION_CODE}" assembleRelease
+
       - name: Package benchmark release assets
         if: steps.release_check.outputs.exists == 'false'
         run: |
@@ -115,6 +136,7 @@ jobs:
             'notes': 'Separate benchmark app. Main tl;dh app code is not modified.'
           }, indent=2), encoding='utf-8')
           PY
+
       - name: Publish benchmark GitHub release
         if: steps.release_check.outputs.exists == 'false'
         env:
@@ -123,4 +145,4 @@ jobs:
           set -euo pipefail
           gh release create "${RELEASE_TAG}" ../dist/stt-bench-release/* \
             --title "tl;dh STT Bench ${VERSION_NAME}" \
-            --notes "Separate German STT benchmark app for engine decisions. This release does not modify the main tl;dh APK."
+            --notes "Install this APK for benchmarking only: tldh-stt-bench-${VERSION_NAME}.apk. This is not the main tl;dh app and uses package dev.bitsbots.tldhbench."

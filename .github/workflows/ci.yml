@@ -3,7 +3,13 @@ name: tldh - Build, Test and Auto Release
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'stt-bench/**'
+      - '.github/workflows/stt-bench.yml'
   pull_request:
+    paths-ignore:
+      - 'stt-bench/**'
+      - '.github/workflows/stt-bench.yml'
   workflow_dispatch:
 
 permissions:

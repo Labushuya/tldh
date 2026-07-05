@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.1] - 2026-07-05
+
+### Fixed
+- Make benchmark APK releases and debug artifacts unmistakably separate from the main tl;dh app.
+- Keep the benchmark package and app label isolated as `dev.bitsbots.tldhbench` / `tl;dh STT Bench`.
+
 ## [0.1.0] - 2026-07-05
 
 ### Added
