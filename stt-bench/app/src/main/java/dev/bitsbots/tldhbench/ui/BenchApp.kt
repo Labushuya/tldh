@@ -1,5 +1,6 @@
 package dev.bitsbots.tldhbench.ui
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
@@ -116,12 +117,14 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var history by remember { mutableStateOf(historyStore.load()) }
     var historyExpanded by remember { mutableStateOf(false) }
     var referenceText by remember { mutableStateOf("") }
+    var batchReport by remember { mutableStateOf<BatchRunReport?>(null) }
 
     fun resetBenchmark() {
         result = null
         error = null
         busyLabel = null
         progress = 0
+        batchReport = null
     }
 
     MaterialTheme(colorScheme = BenchColorScheme) {
@@ -256,6 +259,69 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     }
                 )
 
+                BatchBenchmarkCard(
+                    installedCount = installedSampleIds.size,
+                    totalCount = BuiltInReferenceCorpus.samples.size,
+                    selectedModel = selectedModel,
+                    selectedModelInstalled = installedIds.contains(selectedModel.id),
+                    busy = busyLabel != null,
+                    progress = progress,
+                    busyLabel = busyLabel,
+                    batchReport = batchReport,
+                    onRunBatch = {
+                        val batchSamples = BuiltInReferenceCorpus.samples.filter { installedSampleIds.contains(it.id) }
+                        when {
+                            batchSamples.isEmpty() -> {
+                                error = "Batch nicht möglich: Lade zuerst mindestens ein Goldstandard-Testaudio."
+                            }
+                            !installedIds.contains(selectedModel.id) -> {
+                                error = "Batch nicht möglich: Installiere zuerst das aktive Modell ${selectedModel.displayName}."
+                            }
+                            else -> {
+                                scope.launch {
+                                    error = null
+                                    result = null
+                                    batchReport = null
+                                    progress = 0
+                                    busyLabel = "Batch 0/${batchSamples.size} vorbereitet…"
+                                    val runner = BenchmarkRunner(context)
+                                    val results = mutableListOf<BenchmarkResult>()
+                                    runCatching {
+                                        batchSamples.forEachIndexed { index, sample ->
+                                            busyLabel = "Batch ${index + 1}/${batchSamples.size}: ${sample.id}"
+                                            progress = ((index * 100) / batchSamples.size).coerceIn(0, 100)
+                                            val audio = corpusManager.sharedAudio(sample)
+                                            val run = runner.runVosk(audio, selectedModel, sample.referenceText)
+                                            results += run
+                                            historyStore.add(run)
+                                            history = historyStore.load()
+                                            progress = (((index + 1) * 100) / batchSamples.size).coerceIn(0, 100)
+                                        }
+                                        BatchRunReport.from(selectedModel, results)
+                                    }.onSuccess { report ->
+                                        batchReport = report
+                                        result = results.lastOrNull()
+                                        historyExpanded = true
+                                        busyLabel = null
+                                        progress = 100
+                                    }.onFailure { throwable ->
+                                        busyLabel = null
+                                        error = "Batch-Benchmark fehlgeschlagen (${selectedModel.displayName}): ${throwable.message}"
+                                        if (results.isNotEmpty()) {
+                                            batchReport = BatchRunReport.from(selectedModel, results)
+                                            result = results.lastOrNull()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onCopyReport = { report ->
+                        copyToClipboard(context, "tl;dh STT Bench Batch Report", report.toMarkdown())
+                    },
+                    onClearReport = { batchReport = null }
+                )
+
                 ReferenceTextCard(
                     referenceText = referenceText,
                     onReferenceTextChange = { referenceText = it },
@@ -379,7 +445,15 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 }
 
                 error?.let { ErrorCard(it) }
-                result?.let { ResultCard(it, onReset = { resetBenchmark() }) }
+                result?.let { currentResult ->
+                    ResultCard(
+                        result = currentResult,
+                        onReset = { resetBenchmark() },
+                        onCopyReport = {
+                            copyToClipboard(context, "tl;dh STT Bench Einzelreport", currentResult.toMarkdown())
+                        }
+                    )
+                }
             }
         }
     }
@@ -524,6 +598,90 @@ private fun ReferenceSampleCard(
             if (installed) {
                 OutlinedButton(onClick = onDelete, enabled = !busy) { Text("Löschen") }
             }
+        }
+    }
+}
+
+@Composable
+private fun BatchBenchmarkCard(
+    installedCount: Int,
+    totalCount: Int,
+    selectedModel: VoskModelSpec,
+    selectedModelInstalled: Boolean,
+    busy: Boolean,
+    progress: Int,
+    busyLabel: String?,
+    batchReport: BatchRunReport?,
+    onRunBatch: () -> Unit,
+    onCopyReport: (BatchRunReport) -> Unit,
+    onClearReport: () -> Unit
+) {
+    CardBlock(title = "Batch-Benchmark / Modellvergleich") {
+        Text(
+            "Startet alle bereits geladenen Goldstandard-Audios nacheinander mit dem aktiven Modell und erzeugt einen aggregierten Markdown-Report. Ideal für Small vs. Big DE Vergleich ohne App-Neustart.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Goldstandard-Audios bereit: $installedCount/$totalCount",
+            color = if (installedCount > 0) Good else TextMuted
+        )
+        Text(
+            if (selectedModelInstalled) "Modell installiert: ja" else "Modell installiert: nein",
+            color = if (selectedModelInstalled) Good else Warn
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onRunBatch,
+                enabled = !busy && installedCount > 0 && selectedModelInstalled,
+                colors = benchButtonColors()
+            ) { Text("Batch starten") }
+            OutlinedButton(onClick = { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null) {
+                Text("Batch-Report kopieren")
+            }
+            OutlinedButton(onClick = onClearReport, enabled = !busy && batchReport != null) {
+                Text("Report leeren")
+            }
+        }
+        if (busyLabel?.startsWith("Batch") == true) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(color = Accent2)
+                Text("$busyLabel $progress%", color = TextMuted)
+            }
+        }
+        batchReport?.let { BatchReportBlock(it) }
+    }
+}
+
+@Composable
+private fun BatchReportBlock(report: BatchRunReport) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Batch-Ergebnis", color = TextMain, fontWeight = FontWeight.Bold)
+        Text("${report.modelName} · ${report.sampleCount} Samples · ${formatHistoryTime(report.createdAtMs)}", color = TextMuted)
+        Text(
+            "Ø RTF: ${report.avgRtf?.let { fmtNumber(it) } ?: "n/a"} · Ø WER: ${report.avgWerPercent?.let { fmtPct(it) } ?: "n/a"} · Ø CER: ${report.avgCerPercent?.let { fmtPct(it) } ?: "n/a"}",
+            color = TextMain,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            "Speed-Pass: ${report.speedPassCount}/${report.speedEvaluatedCount} · schwächste WER: ${report.worstWerLabel}",
+            color = if ((report.avgWerPercent ?: 100.0) <= 25.0) Good else if ((report.avgWerPercent ?: 100.0) <= 40.0) Warn else Bad
+        )
+        report.results.forEach { item ->
+            val comparison = item.referenceComparison
+            Text(
+                "• ${item.metadata.displayName ?: item.metadata.uriString.substringAfterLast('/')} · Gesamt ${fmtMs(item.timing.totalMs)} · RTF ${item.timing.rtf?.let { fmtNumber(it) } ?: "n/a"} · WER ${comparison?.werPercent?.let { fmtPct(it) } ?: "n/a"}",
+                color = TextMuted,
+                lineHeight = 19.sp
+            )
         }
     }
 }
@@ -776,7 +934,7 @@ private fun ErrorCard(message: String) {
 }
 
 @Composable
-private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit) {
+private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit, onCopyReport: () -> Unit) {
     var detailsExpanded by remember { mutableStateOf(false) }
     var transcriptExpanded by remember { mutableStateOf(true) }
     val passColor = when (result.verdict.passed) {
@@ -792,7 +950,10 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit) {
                     Text("Ergebnis", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(result.model, color = TextMuted)
                 }
-                OutlinedButton(onClick = onReset) { Text("Reset") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = onCopyReport) { Text("Report kopieren") }
+                    OutlinedButton(onClick = onReset) { Text("Reset") }
+                }
             }
             Text(result.verdict.message, color = passColor, fontWeight = FontWeight.SemiBold)
             Text("Gesamt: ${fmtMs(result.timing.totalMs)} · Audio: ${fmtMs(result.timing.audioDurationMs)} · RTF: ${result.timing.rtf?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}", color = TextMain)
@@ -837,6 +998,132 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit) {
         }
     }
 }
+
+private data class BatchRunReport(
+    val modelName: String,
+    val modelId: String,
+    val createdAtMs: Long,
+    val results: List<BenchmarkResult>
+) {
+    val sampleCount: Int = results.size
+    val avgRtf: Double? = results.mapNotNull { it.timing.rtf }.averageOrNull()
+    val avgWerPercent: Double? = results.mapNotNull { it.referenceComparison?.werPercent }.averageOrNull()
+    val avgCerPercent: Double? = results.mapNotNull { it.referenceComparison?.cerPercent }.averageOrNull()
+    val speedEvaluatedCount: Int = results.count { it.verdict.passed != null }
+    val speedPassCount: Int = results.count { it.verdict.passed == true }
+    val worstWerLabel: String = results
+        .mapNotNull { result -> result.referenceComparison?.werPercent?.let { result to it } }
+        .maxByOrNull { it.second }
+        ?.let { (result, wer) -> "${result.metadata.displayName ?: result.metadata.uriString.substringAfterLast('/')} (${fmtPct(wer)})" }
+        ?: "n/a"
+
+    companion object {
+        fun from(model: VoskModelSpec, results: List<BenchmarkResult>): BatchRunReport = BatchRunReport(
+            modelName = model.displayName,
+            modelId = model.id,
+            createdAtMs = System.currentTimeMillis(),
+            results = results.toList()
+        )
+    }
+}
+
+private fun BatchRunReport.toMarkdown(): String {
+    val lines = mutableListOf<String>()
+    lines += "# tl;dh STT Bench Batch Report"
+    lines += ""
+    lines += "- Modell: $modelName (`$modelId`)"
+    lines += "- Zeitpunkt: ${formatHistoryTime(createdAtMs)}"
+    lines += "- Samples: $sampleCount"
+    lines += "- Speed-Pass: $speedPassCount/$speedEvaluatedCount"
+    lines += "- Ø RTF: ${avgRtf?.let { fmtNumber(it) } ?: "n/a"}"
+    lines += "- Ø WER: ${avgWerPercent?.let { fmtPct(it) } ?: "n/a"}"
+    lines += "- Ø CER: ${avgCerPercent?.let { fmtPct(it) } ?: "n/a"}"
+    lines += "- Schwächste WER: $worstWerLabel"
+    lines += ""
+    lines += "| Sample | Dauer | Gesamt | Decode | Modell | STT | RTF | WER | CER | Verdict |"
+    lines += "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    results.forEach { result ->
+        val comparison = result.referenceComparison
+        lines += listOf(
+            result.metadata.displayName ?: result.metadata.uriString.substringAfterLast('/'),
+            fmtMs(result.timing.audioDurationMs),
+            fmtMs(result.timing.totalMs),
+            fmtMs(result.timing.decodeMs),
+            fmtMs(result.timing.modelLoadMs),
+            fmtMs(result.timing.sttMs),
+            result.timing.rtf?.let { fmtNumber(it) } ?: "n/a",
+            comparison?.werPercent?.let { fmtPct(it) } ?: "n/a",
+            comparison?.cerPercent?.let { fmtPct(it) } ?: "n/a",
+            result.verdict.message.replace("|", "/")
+        ).joinToString(prefix = "| ", separator = " | ", postfix = " |")
+    }
+    lines += ""
+    lines += "## Vollständige Einzeltranskripte"
+    results.forEachIndexed { index, result ->
+        lines += ""
+        lines += "### ${index + 1}. ${result.metadata.displayName ?: result.metadata.uriString.substringAfterLast('/')}"
+        lines += ""
+        result.referenceComparison?.let { comparison ->
+            lines += "- ${comparison.summary}"
+            lines += "- Referenz: ${comparison.referenceRaw}"
+        }
+        lines += "- Erkannt: ${result.transcript.ifBlank { "Kein Transkript erkannt." }}"
+    }
+    return lines.joinToString("\n")
+}
+
+private fun BenchmarkResult.toMarkdown(): String {
+    val lines = mutableListOf<String>()
+    lines += "# tl;dh STT Bench Einzelreport"
+    lines += ""
+    lines += "- Engine: $engine"
+    lines += "- Modell: $model (`$modelId`)"
+    lines += "- Sprache: $language"
+    lines += "- Datei: ${metadata.displayName ?: "unbekannt"}"
+    lines += "- MIME/Format: ${metadata.mimeType ?: "unbekannt"} / ${metadata.format}"
+    lines += "- Dauer: ${fmtMs(timing.audioDurationMs)}"
+    lines += "- Gesamt: ${fmtMs(timing.totalMs)}"
+    lines += "- Decode: ${fmtMs(timing.decodeMs)}"
+    lines += "- Modell-Load: ${fmtMs(timing.modelLoadMs)}"
+    lines += "- STT: ${fmtMs(timing.sttMs)}"
+    lines += "- RTF: ${timing.rtf?.let { fmtNumber(it) } ?: "n/a"}"
+    lines += "- Verdict: ${verdict.message}"
+    referenceComparison?.let { comparison ->
+        lines += "- Referenzvergleich: ${comparison.summary}"
+    }
+    if (warnings.isNotEmpty()) {
+        lines += ""
+        lines += "## Hinweise"
+        warnings.forEach { lines += "- $it" }
+    }
+    lines += ""
+    lines += "## Transkript"
+    if (segments.isEmpty()) {
+        lines += transcript.ifBlank { "Kein Transkript erkannt." }
+    } else {
+        segments.forEach { segment ->
+            lines += "${ts(segment.startSec)}–${ts(segment.endSec)}  ${segment.text}"
+        }
+    }
+    referenceComparison?.let { comparison ->
+        lines += ""
+        lines += "## Referenz"
+        lines += comparison.referenceRaw
+        lines += ""
+        lines += "## Erkannt"
+        lines += comparison.hypothesisRaw.ifBlank { "Kein Transkript erkannt." }
+    }
+    return lines.joinToString("\n")
+}
+
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+}
+
+private fun List<Double>.averageOrNull(): Double? = if (isEmpty()) null else average()
+
+private fun fmtNumber(value: Double): String = String.format(Locale.GERMANY, "%.2f", value)
 
 private fun formatHistoryTime(timestampMs: Long): String {
     if (timestampMs <= 0L) return "Zeitpunkt unbekannt"

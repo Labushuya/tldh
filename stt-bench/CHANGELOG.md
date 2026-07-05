@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.5 - Batch corpus benchmarking and Markdown reports
+
+### Added
+- Batch-Benchmark card for running all installed gold-standard corpus samples sequentially with the active Vosk model.
+- Aggregated batch summary with sample count, average RTF, average WER/CER, speed-pass count and worst WER sample.
+- Markdown copy report for full batch results, including per-sample timings, WER/CER and recognized transcripts.
+- Markdown copy report for single benchmark runs.
+- Partial batch preservation: if a later sample fails, completed results remain visible as a report.
+
+### Changed
+- Release tag moves to `stt-bench-v0.2.5`.
+- Workflow and Gradle version defaults move to `0.2.5` / versionCode `205`.
+
 ## 0.2.4 - FLAC corpus and UI contrast fix
 
 ### Fixed

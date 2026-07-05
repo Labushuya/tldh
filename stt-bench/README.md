@@ -2,9 +2,9 @@
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.2.4
+## Current release: 0.2.5
 
-Focus: Vosk multi-model testing with built-in gold-standard starter corpus, WER/CER reference comparison, FLAC reference-audio support, and fixed dark UI contrast.
+Focus: Vosk multi-model testing with built-in gold-standard starter corpus, WER/CER reference comparison, FLAC reference-audio support, fixed dark UI contrast, batch corpus runs, and Markdown benchmark reports.
 
 ## Features
 
@@ -22,6 +22,8 @@ Focus: Vosk multi-model testing with built-in gold-standard starter corpus, WER/
 - Last 5 benchmark runs stored locally inside the benchmark app.
 - Current run reset button; history reset remains separate.
 - Explicit dark theme/text-field colors so reference fields remain readable.
+- Batch-benchmark all installed gold-standard samples with the active model.
+- Copy single-run or batch results as Markdown for handover/comparison.
 
 ## Built-in gold-standard starter corpus
 
@@ -43,3 +45,8 @@ This is intended for the built-in starter corpus, Common Voice, self-made WhatsA
 ## Privacy
 
 No telemetry. No cloud STT. The reference text, downloaded starter samples, and last-5 history are stored locally in the benchmark app only.
+
+
+## Batch reports
+
+After downloading one or more built-in gold-standard samples and installing a Vosk model, use **Batch starten** to run the active model against every installed reference sample. The app summarizes average RTF, WER/CER, speed-pass count, worst WER sample, and per-sample timings. Use **Batch-Report kopieren** to paste the complete Markdown report into GitHub, notes, or the next ChatGPT handover.
