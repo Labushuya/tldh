@@ -49,9 +49,13 @@ import dev.bitsbots.tldhbench.bench.BenchmarkRunner
 import dev.bitsbots.tldhbench.bench.Signal
 import dev.bitsbots.tldhbench.bench.VoskModelCatalog
 import dev.bitsbots.tldhbench.bench.VoskModelSpec
+import dev.bitsbots.tldhbench.history.BenchmarkHistoryItem
+import dev.bitsbots.tldhbench.history.BenchmarkHistoryStore
 import dev.bitsbots.tldhbench.models.VoskModelManager
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 private val Bg = Color(0xFF09040A)
@@ -69,6 +73,7 @@ private val Bad = Color(0xFFFB7185)
 fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val context = LocalContext.current
     val modelManager = remember { VoskModelManager(context) }
+    val historyStore = remember { BenchmarkHistoryStore(context) }
     val scope = rememberCoroutineScope()
     var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
     var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
@@ -76,6 +81,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var busyLabel by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<BenchmarkResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var history by remember { mutableStateOf(historyStore.load()) }
+    var historyExpanded by remember { mutableStateOf(false) }
 
     fun resetBenchmark() {
         result = null
@@ -108,6 +115,17 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     Spacer(Modifier.height(8.dp))
                     Text("Zielmarken: 15s→≤15s · 60s→≤30s · 180s→≤120s", color = TextMain, fontWeight = FontWeight.SemiBold)
                 }
+
+
+                HistoryCard(
+                    history = history,
+                    expanded = historyExpanded,
+                    onToggle = { historyExpanded = !historyExpanded },
+                    onClear = {
+                        historyStore.clear()
+                        history = emptyList()
+                    }
+                )
 
                 CardBlock(title = "Vosk Modelle") {
                     Text("Ampel: Geschwindigkeit / Genauigkeit / Handy-Eignung", color = TextMuted, lineHeight = 20.sp)
@@ -185,6 +203,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                         BenchmarkRunner(context).runVosk(audio, selectedModel)
                                     }.onSuccess {
                                         result = it
+                                        historyStore.add(it)
+                                        history = historyStore.load()
+                                        historyExpanded = true
                                         busyLabel = null
                                     }.onFailure {
                                         busyLabel = null
@@ -234,6 +255,83 @@ private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             content()
+        }
+    }
+}
+
+@Composable
+private fun HistoryCard(
+    history: List<BenchmarkHistoryItem>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onClear: () -> Unit
+) {
+    CardBlock(title = "Letzte 5 Benchmarks") {
+        Text(
+            if (history.isEmpty()) "Noch keine gespeicherten Läufe. Nach jedem Benchmark wird der neueste Lauf automatisch hier abgelegt."
+            else "Gespeichert: ${history.size}/5. Die Historie bleibt in der Benchmark-App und berührt tl;dh nicht.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onToggle, enabled = history.isNotEmpty()) {
+                Text(if (expanded) "Historie ausblenden" else "Historie anzeigen")
+            }
+            OutlinedButton(onClick = onClear, enabled = history.isNotEmpty()) {
+                Text("Historie löschen")
+            }
+        }
+        AnimatedVisibility(expanded && history.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                history.forEachIndexed { index, item ->
+                    HistoryItemCard(index = index + 1, item = item)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryItemCard(index: Int, item: BenchmarkHistoryItem) {
+    var transcriptExpanded by remember(item.timestampMs) { mutableStateOf(false) }
+    val verdictColor = when (item.passed) {
+        true -> Good
+        false -> Bad
+        null -> TextMuted
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("#$index · ${item.model}", color = TextMain, fontWeight = FontWeight.Bold)
+                Text(formatHistoryTime(item.timestampMs), color = TextMuted, fontSize = 12.sp)
+            }
+            Text(item.passed?.let { if (it) "OK" else "FAIL" } ?: "INFO", color = verdictColor, fontWeight = FontWeight.Bold)
+        }
+        Text("Audio: ${fmtMs(item.durationMs)} · Gesamt: ${fmtMs(item.totalMs)} · RTF: ${item.rtf?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}", color = TextMain)
+        Text("Decode: ${fmtMs(item.decodeMs)} · Modell: ${fmtMs(item.modelLoadMs)} · STT: ${fmtMs(item.sttMs)}", color = TextMuted, fontSize = 13.sp)
+        Text("Datei: ${item.audioName ?: "unbekannt"}", color = TextMuted, fontSize = 13.sp)
+        if (item.warningsCount > 0) Text("Hinweise: ${item.warningsCount}", color = Warn, fontSize = 13.sp)
+        Text(item.transcriptPreview, color = TextMuted, lineHeight = 19.sp)
+        OutlinedButton(onClick = { transcriptExpanded = !transcriptExpanded }) {
+            Text(if (transcriptExpanded) "Transkript ausblenden" else "Transkript anzeigen")
+        }
+        AnimatedVisibility(transcriptExpanded) {
+            Text(
+                item.transcriptFull.ifBlank { "Kein Transkript gespeichert." },
+                color = TextMuted,
+                lineHeight = 19.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0B0509), RoundedCornerShape(14.dp))
+                    .padding(10.dp)
+            )
         }
     }
 }
@@ -373,6 +471,11 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit) {
             }
         }
     }
+}
+
+private fun formatHistoryTime(timestampMs: Long): String {
+    if (timestampMs <= 0L) return "Zeitpunkt unbekannt"
+    return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.GERMANY).format(Date(timestampMs))
 }
 
 private fun fmtMs(ms: Long?): String {

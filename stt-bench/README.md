@@ -6,9 +6,9 @@
 
 Separate Android-Benchmark-App für die STT-Engine-Entscheidung von **tl;dh**. Die Haupt-App bleibt unberührt.
 
-## v0.2.0 Fokus
+## v0.2.1 Fokus
 
-Diese Version bleibt primär bei **Vosk**, erweitert den Test aber auf mehrere deutsche Modelle, die live ohne App-Neustart heruntergeladen, gewechselt und gegen dieselbe Audio gebenchmarkt werden können.
+Diese Version bleibt primär bei **Vosk**, erweitert den Test aber auf mehrere deutsche Modelle, die live ohne App-Neustart heruntergeladen, gewechselt und gegen dieselbe Audio gebenchmarkt werden können. Zusätzlich speichert die App lokal die letzten 5 Benchmark-Läufe, die bei Bedarf eingeblendet werden können.
 
 ## Modelle
 
@@ -32,6 +32,10 @@ WhatsApp Audio teilen
 → erneut benchmarken
 → Zeiten/RTF/Transkript vergleichen
 ```
+
+## Letzte 5 Benchmarks
+
+Nach jedem erfolgreichen Benchmark speichert die App lokal eine kompakte Historie mit Modell, Audio-Dauer, Gesamtzeit, RTF, Verdict, Transkript-Vorschau und vollständigem erkanntem Transkript mit Zeitstempeln. Es werden maximal 5 Läufe behalten; ältere Einträge fallen automatisch heraus. Die Historie kann im UI angezeigt oder gelöscht werden.
 
 ## Reset
 
