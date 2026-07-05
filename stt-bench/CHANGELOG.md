@@ -23,3 +23,9 @@
 - Decode → 16 kHz mono PCM preparation.
 - Benchmark metrics: decode time, model load time, STT time, total time, RTF, pass/fail target.
 - Expandable full transcript excerpt with timestamps for verification.
+
+## [0.1.3] - 2026-07-05
+
+### Fixed
+- Use API-safe share intent URI extraction for Android 9+ compatibility in lint/CI.
+- Clean up Vosk acceptWaveForm null handling.

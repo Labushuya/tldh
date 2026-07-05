@@ -77,6 +77,7 @@ class VoskBenchmarkEngine {
             val method = runCatching { recognizer.javaClass.getMethod(name, ByteArray::class.java, Int::class.javaPrimitiveType) }.getOrNull() ?: continue
             val value = method.invoke(recognizer, buffer, read)
             return when (value) {
+                null -> false
                 is Boolean -> value
                 is Int -> value != 0
                 else -> false
