@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.3 - Built-in gold-standard starter corpus
+
+### Added
+- Goldstandard-Testaudios card with a curated CC0 German starter corpus.
+- One-tap download for 8 clean German reference audios from `rhasspy/dataset-voice-kerstin`.
+- Per-sample download, select, delete actions.
+- Selecting a sample automatically sets the audio input and correct reference transcript.
+- Corpus clear action for removing all downloaded starter audios.
+
+### Changed
+- Manual reference text remains available, but the benchmark app now provides ready-to-use baseline audio/transcript pairs.
+- Release tag moves to `stt-bench-v0.2.3`.
+
+
 ## 0.2.2 - Reference text comparison / WER-CER
 
 ### Added

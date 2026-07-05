@@ -52,6 +52,9 @@ import dev.bitsbots.tldhbench.bench.BenchmarkRunner
 import dev.bitsbots.tldhbench.bench.Signal
 import dev.bitsbots.tldhbench.bench.VoskModelCatalog
 import dev.bitsbots.tldhbench.bench.VoskModelSpec
+import dev.bitsbots.tldhbench.corpus.BuiltInReferenceCorpus
+import dev.bitsbots.tldhbench.corpus.ReferenceCorpusManager
+import dev.bitsbots.tldhbench.corpus.ReferenceSample
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryItem
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryStore
 import dev.bitsbots.tldhbench.models.VoskModelManager
@@ -76,10 +79,13 @@ private val Bad = Color(0xFFFB7185)
 fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val context = LocalContext.current
     val modelManager = remember { VoskModelManager(context) }
+    val corpusManager = remember { ReferenceCorpusManager(context) }
     val historyStore = remember { BenchmarkHistoryStore(context) }
     val scope = rememberCoroutineScope()
     var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
     var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
+    var installedSampleIds by remember { mutableStateOf(corpusManager.installedIds()) }
+    var selectedSample by remember { mutableStateOf<ReferenceSample?>(null) }
     var progress by remember { mutableIntStateOf(0) }
     var busyLabel by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<BenchmarkResult?>(null) }
@@ -128,6 +134,102 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     onClear = {
                         historyStore.clear()
                         history = emptyList()
+                    }
+                )
+
+
+                GoldstandardCorpusCard(
+                    samples = BuiltInReferenceCorpus.samples,
+                    installedIds = installedSampleIds,
+                    selectedSample = selectedSample,
+                    busy = busyLabel != null,
+                    progress = progress,
+                    busyLabel = busyLabel,
+                    onDownloadAll = {
+                        scope.launch {
+                            error = null
+                            result = null
+                            progress = 0
+                            busyLabel = "Lade Goldstandard-Testaudios…"
+                            runCatching {
+                                corpusManager.downloadAll(BuiltInReferenceCorpus.samples) { label, pct ->
+                                    busyLabel = label
+                                    progress = pct
+                                }
+                            }.onSuccess {
+                                installedSampleIds = corpusManager.installedIds()
+                                busyLabel = null
+                                progress = 100
+                            }.onFailure {
+                                busyLabel = null
+                                error = "Goldstandard-Download fehlgeschlagen: ${it.message}"
+                            }
+                        }
+                    },
+                    onDownload = { sample ->
+                        scope.launch {
+                            error = null
+                            result = null
+                            progress = 0
+                            busyLabel = "Lade ${sample.id}…"
+                            runCatching { corpusManager.download(sample) { progress = it } }
+                                .onSuccess {
+                                    installedSampleIds = corpusManager.installedIds()
+                                    busyLabel = null
+                                }
+                                .onFailure {
+                                    busyLabel = null
+                                    error = "Testaudio-Download fehlgeschlagen (${sample.id}): ${it.message}"
+                                }
+                        }
+                    },
+                    onSelect = { sample ->
+                        runCatching {
+                            sharedAudioState.value = corpusManager.sharedAudio(sample)
+                            selectedSample = sample
+                            referenceText = sample.referenceText
+                            resetBenchmark()
+                        }.onFailure {
+                            error = "Testaudio konnte nicht ausgewählt werden (${sample.id}): ${it.message}"
+                        }
+                    },
+                    onDelete = { sample ->
+                        scope.launch {
+                            error = null
+                            result = null
+                            busyLabel = "Lösche ${sample.id}…"
+                            runCatching { corpusManager.delete(sample) }
+                                .onSuccess {
+                                    installedSampleIds = corpusManager.installedIds()
+                                    if (selectedSample?.id == sample.id) {
+                                        selectedSample = null
+                                        sharedAudioState.value = null
+                                    }
+                                    busyLabel = null
+                                }
+                                .onFailure {
+                                    busyLabel = null
+                                    error = "Testaudio konnte nicht gelöscht werden (${sample.id}): ${it.message}"
+                                }
+                        }
+                    },
+                    onClear = {
+                        scope.launch {
+                            error = null
+                            result = null
+                            busyLabel = "Lösche Goldstandard-Testaudios…"
+                            runCatching { corpusManager.clear() }
+                                .onSuccess {
+                                    installedSampleIds = corpusManager.installedIds()
+                                    selectedSample = null
+                                    sharedAudioState.value = null
+                                    busyLabel = null
+                                }
+                                .onFailure {
+                                    busyLabel = null
+                                    error = "Goldstandard-Testaudios konnten nicht gelöscht werden: ${it.message}"
+                                }
+                        }
                     }
                 )
 
@@ -210,6 +312,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     )
                     Spacer(Modifier.height(10.dp))
                     Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+                    selectedSample?.let { sample ->
+                        Text("Goldstandard: ${sample.id} · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold)
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Button(
@@ -275,6 +380,119 @@ private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             content()
+        }
+    }
+}
+
+@Composable
+private fun GoldstandardCorpusCard(
+    samples: List<ReferenceSample>,
+    installedIds: Set<String>,
+    selectedSample: ReferenceSample?,
+    busy: Boolean,
+    progress: Int,
+    busyLabel: String?,
+    onDownloadAll: () -> Unit,
+    onDownload: (ReferenceSample) -> Unit,
+    onSelect: (ReferenceSample) -> Unit,
+    onDelete: (ReferenceSample) -> Unit,
+    onClear: () -> Unit
+) {
+    val installedCount = samples.count { installedIds.contains(it.id) }
+    var expanded by remember { mutableStateOf(installedCount < samples.size) }
+    CardBlock(title = "Goldstandard-Testaudios") {
+        Text(
+            "Optionaler Starter-Korpus: saubere deutsche Referenz-Audios inklusive korrektem Text. Damit musst Du für Baseline-WER/CER nicht selbst erst Audios und Transkripte zusammensuchen.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Quelle: rhasspy/dataset-voice-kerstin · CC0-1.0 · ${samples.size} kuratierte Kurz-/Mittelsätze",
+            color = TextMain,
+            fontWeight = FontWeight.SemiBold
+        )
+        selectedSample?.let {
+            Text("Aktiv: ${it.id} · ${it.title}", color = Good, fontWeight = FontWeight.SemiBold)
+        }
+        Text("Installiert: $installedCount/${samples.size}", color = if (installedCount > 0) Good else TextMuted)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onDownloadAll,
+                enabled = !busy && installedCount < samples.size,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text("Starter-Set laden") }
+            OutlinedButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Liste einklappen" else "Liste anzeigen")
+            }
+            OutlinedButton(onClick = onClear, enabled = !busy && installedCount > 0) {
+                Text("Corpus löschen")
+            }
+        }
+        if (busyLabel?.contains("rhasspy") == true || busyLabel?.contains("Goldstandard") == true || busyLabel?.startsWith("Lade de_rhasspy") == true) {
+            Text("$busyLabel $progress%", color = TextMuted)
+        }
+        AnimatedVisibility(expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                samples.forEach { sample ->
+                    ReferenceSampleCard(
+                        sample = sample,
+                        installed = installedIds.contains(sample.id),
+                        selected = selectedSample?.id == sample.id,
+                        busy = busy,
+                        onDownload = { onDownload(sample) },
+                        onSelect = { onSelect(sample) },
+                        onDelete = { onDelete(sample) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReferenceSampleCard(
+    sample: ReferenceSample,
+    installed: Boolean,
+    selected: Boolean,
+    busy: Boolean,
+    onDownload: () -> Unit,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .border(1.dp, if (selected) Accent2 else Color.Transparent, RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("${sample.id} · ${sample.title}", color = TextMain, fontWeight = FontWeight.Bold)
+                Text("${sample.difficultyLabel} · ${sample.speaker} · ${sample.licenseLabel}", color = TextMuted, fontSize = 13.sp)
+            }
+            Text(
+                if (selected) "aktiv" else if (installed) "bereit" else "nicht geladen",
+                color = if (selected || installed) Good else TextMuted,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Text(sample.referenceText, color = TextMain, lineHeight = 19.sp)
+        Text(sample.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onDownload,
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text(if (installed) "Neu laden" else "Download") }
+            OutlinedButton(onClick = onSelect, enabled = installed && !busy) {
+                Text("Als Testaudio nutzen")
+            }
+            if (installed) {
+                OutlinedButton(onClick = onDelete, enabled = !busy) { Text("Löschen") }
+            }
         }
     }
 }
