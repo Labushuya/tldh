@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.6 - Usability revamp, updater restore, long-run profiles
+
+### Added
+- Section-based UI navigation: Start, Modelle, Goldstandard, Benchmark, Ergebnisse, Updates.
+- Sticky setup summary at the top of each section with current model, audio source, reference state and busy progress.
+- Restored benchmark-specific in-app updater with SHA256 verification, wake-lock guarded download and Android APK installer.
+- Benchmark update selector only accepts `stt-bench-vX.Y.Z` releases with `tldh-stt-bench-X.Y.Z.apk` assets.
+- Batch repeat profiles: `1×`, `3×`, `8×`, `20×` corpus runs for longer reproducible STT workload comparisons.
+
+### Changed
+- Single and batch benchmark completion now routes the user to the Ergebnisbereich instead of leaving the result buried below a long scroll stack.
+- Goldstandard area explains short starter samples versus long-run batch profiles more clearly.
+- Release tag moves to `stt-bench-v0.2.6`.
+- Workflow and Gradle version defaults move to `0.2.6` / versionCode `206`.
+
 ## 0.2.5 - Batch corpus benchmarking and Markdown reports
 
 ### Added

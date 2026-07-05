@@ -3,6 +3,7 @@ package dev.bitsbots.tldhbench.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import java.io.File
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +29,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +37,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,9 +51,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.bitsbots.tldhbench.BuildConfig
 import dev.bitsbots.tldhbench.bench.BenchmarkResult
 import dev.bitsbots.tldhbench.bench.BenchmarkRunner
 import dev.bitsbots.tldhbench.bench.Signal
@@ -62,6 +68,11 @@ import dev.bitsbots.tldhbench.history.BenchmarkHistoryItem
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryStore
 import dev.bitsbots.tldhbench.models.VoskModelManager
 import dev.bitsbots.tldhbench.share.SharedAudio
+import dev.bitsbots.tldhbench.updates.ApkInstaller
+import dev.bitsbots.tldhbench.updates.BenchmarkReleaseSelector
+import dev.bitsbots.tldhbench.updates.BenchmarkUpdate
+import dev.bitsbots.tldhbench.updates.GitHubReleaseClient
+import dev.bitsbots.tldhbench.updates.UpdateDownloadGuard
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -106,6 +117,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val corpusManager = remember { ReferenceCorpusManager(context) }
     val historyStore = remember { BenchmarkHistoryStore(context) }
     val scope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+
+    var selectedSection by remember { mutableStateOf(BenchSection.Start) }
     var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
     var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
     var installedSampleIds by remember { mutableStateOf(corpusManager.installedIds()) }
@@ -118,13 +132,102 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var historyExpanded by remember { mutableStateOf(false) }
     var referenceText by remember { mutableStateOf("") }
     var batchReport by remember { mutableStateOf<BatchRunReport?>(null) }
+    var batchRepeatCount by remember { mutableIntStateOf(1) }
 
-    fun resetBenchmark() {
+    fun resetBenchmark(clearBatch: Boolean = false) {
         result = null
         error = null
         busyLabel = null
         progress = 0
-        batchReport = null
+        if (clearBatch) batchReport = null
+    }
+
+    fun selectReferenceSample(sample: ReferenceSample) {
+        runCatching {
+            sharedAudioState.value = corpusManager.sharedAudio(sample)
+            selectedSample = sample
+            referenceText = sample.referenceText
+            resetBenchmark()
+            selectedSection = BenchSection.Run
+        }.onFailure {
+            error = "Testaudio konnte nicht ausgewählt werden (${sample.id}): ${it.message}"
+            selectedSection = BenchSection.Results
+        }
+    }
+
+    fun runSingleBenchmark() {
+        val audio = sharedAudioState.value ?: return
+        scope.launch {
+            error = null
+            result = null
+            busyLabel = "Benchmark läuft…"
+            selectedSection = BenchSection.Run
+            runCatching {
+                BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
+            }.onSuccess {
+                result = it
+                historyStore.add(it)
+                history = historyStore.load()
+                historyExpanded = true
+                busyLabel = null
+                selectedSection = BenchSection.Results
+            }.onFailure {
+                busyLabel = null
+                error = "Benchmark fehlgeschlagen (${selectedModel.displayName}): ${it.message}"
+                selectedSection = BenchSection.Results
+            }
+        }
+    }
+
+    fun runBatchBenchmark() {
+        val baseSamples = BuiltInReferenceCorpus.samples.filter { installedSampleIds.contains(it.id) }
+        if (baseSamples.isEmpty()) {
+            error = "Batch nicht möglich: Lade zuerst mindestens ein Goldstandard-Testaudio."
+            selectedSection = BenchSection.Results
+            return
+        }
+        if (!installedIds.contains(selectedModel.id)) {
+            error = "Batch nicht möglich: Installiere zuerst das aktive Modell ${selectedModel.displayName}."
+            selectedSection = BenchSection.Results
+            return
+        }
+        val batchSamples = buildList {
+            repeat(batchRepeatCount.coerceAtLeast(1)) { addAll(baseSamples) }
+        }
+        scope.launch {
+            error = null
+            result = null
+            batchReport = null
+            progress = 0
+            busyLabel = "Batch 0/${batchSamples.size} vorbereitet…"
+            selectedSection = BenchSection.Run
+            val results = mutableListOf<BenchmarkResult>()
+            for ((index, sample) in batchSamples.withIndex()) {
+                runCatching {
+                    busyLabel = "Batch ${index + 1}/${batchSamples.size}: ${sample.id}"
+                    progress = (((index + 1) * 100) / batchSamples.size).coerceIn(0, 100)
+                    BenchmarkRunner(context).runVosk(corpusManager.sharedAudio(sample), selectedModel, sample.referenceText)
+                }.onSuccess {
+                    results += it
+                    historyStore.add(it)
+                    history = historyStore.load()
+                }.onFailure { throwable ->
+                    busyLabel = null
+                    error = "Batch-Benchmark fehlgeschlagen (${selectedModel.displayName}): ${throwable.message}"
+                    if (results.isNotEmpty()) batchReport = BatchRunReport.from(selectedModel, results, batchRepeatCount)
+                    selectedSection = BenchSection.Results
+                    return@launch
+                }
+            }
+            batchReport = BatchRunReport.from(selectedModel, results, batchRepeatCount)
+            busyLabel = null
+            historyExpanded = true
+            selectedSection = BenchSection.Results
+        }
+    }
+
+    LaunchedEffect(selectedSection) {
+        scrollState.animateScrollTo(0)
     }
 
     MaterialTheme(colorScheme = BenchColorScheme) {
@@ -136,328 +239,644 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp)
+                    .verticalScroll(scrollState)
+                    .padding(16.dp)
                     .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Header()
-                CardBlock(title = "Benchmark-Ziel") {
-                    Text(
-                        "Mehrere Vosk-Modelle live herunterladen, wechseln und gegen dieselbe Audio testen. tl;dh bleibt unberührt.",
-                        color = TextMuted,
-                        lineHeight = 20.sp
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text("Zielmarken: 15s→≤15s · 60s→≤30s · 180s→≤120s", color = TextMain, fontWeight = FontWeight.SemiBold)
-                }
-
-
-                HistoryCard(
-                    history = history,
-                    expanded = historyExpanded,
-                    onToggle = { historyExpanded = !historyExpanded },
-                    onClear = {
-                        historyStore.clear()
-                        history = emptyList()
-                    }
-                )
-
-
-                GoldstandardCorpusCard(
-                    samples = BuiltInReferenceCorpus.samples,
-                    installedIds = installedSampleIds,
-                    selectedSample = selectedSample,
-                    busy = busyLabel != null,
-                    progress = progress,
-                    busyLabel = busyLabel,
-                    onDownloadAll = {
-                        scope.launch {
-                            error = null
-                            result = null
-                            progress = 0
-                            busyLabel = "Lade Goldstandard-Testaudios…"
-                            runCatching {
-                                corpusManager.downloadAll(BuiltInReferenceCorpus.samples) { label, pct ->
-                                    busyLabel = label
-                                    progress = pct
-                                }
-                            }.onSuccess {
-                                installedSampleIds = corpusManager.installedIds()
-                                busyLabel = null
-                                progress = 100
-                            }.onFailure {
-                                busyLabel = null
-                                error = "Goldstandard-Download fehlgeschlagen: ${it.message}"
-                            }
-                        }
-                    },
-                    onDownload = { sample ->
-                        scope.launch {
-                            error = null
-                            result = null
-                            progress = 0
-                            busyLabel = "Lade ${sample.id}…"
-                            runCatching { corpusManager.download(sample) { progress = it } }
-                                .onSuccess {
-                                    installedSampleIds = corpusManager.installedIds()
-                                    busyLabel = null
-                                }
-                                .onFailure {
-                                    busyLabel = null
-                                    error = "Testaudio-Download fehlgeschlagen (${sample.id}): ${it.message}"
-                                }
-                        }
-                    },
-                    onSelect = { sample ->
-                        runCatching {
-                            sharedAudioState.value = corpusManager.sharedAudio(sample)
-                            selectedSample = sample
-                            referenceText = sample.referenceText
-                            resetBenchmark()
-                        }.onFailure {
-                            error = "Testaudio konnte nicht ausgewählt werden (${sample.id}): ${it.message}"
-                        }
-                    },
-                    onDelete = { sample ->
-                        scope.launch {
-                            error = null
-                            result = null
-                            busyLabel = "Lösche ${sample.id}…"
-                            runCatching { corpusManager.delete(sample) }
-                                .onSuccess {
-                                    installedSampleIds = corpusManager.installedIds()
-                                    if (selectedSample?.id == sample.id) {
-                                        selectedSample = null
-                                        sharedAudioState.value = null
-                                    }
-                                    busyLabel = null
-                                }
-                                .onFailure {
-                                    busyLabel = null
-                                    error = "Testaudio konnte nicht gelöscht werden (${sample.id}): ${it.message}"
-                                }
-                        }
-                    },
-                    onClear = {
-                        scope.launch {
-                            error = null
-                            result = null
-                            busyLabel = "Lösche Goldstandard-Testaudios…"
-                            runCatching { corpusManager.clear() }
-                                .onSuccess {
-                                    installedSampleIds = corpusManager.installedIds()
-                                    selectedSample = null
-                                    sharedAudioState.value = null
-                                    busyLabel = null
-                                }
-                                .onFailure {
-                                    busyLabel = null
-                                    error = "Goldstandard-Testaudios konnten nicht gelöscht werden: ${it.message}"
-                                }
-                        }
-                    }
-                )
-
-                BatchBenchmarkCard(
-                    installedCount = installedSampleIds.size,
-                    totalCount = BuiltInReferenceCorpus.samples.size,
+                ActiveSetupCard(
                     selectedModel = selectedModel,
-                    selectedModelInstalled = installedIds.contains(selectedModel.id),
-                    busy = busyLabel != null,
-                    progress = progress,
-                    busyLabel = busyLabel,
-                    batchReport = batchReport,
-                    onRunBatch = {
-                        val batchSamples = BuiltInReferenceCorpus.samples.filter { installedSampleIds.contains(it.id) }
-                        when {
-                            batchSamples.isEmpty() -> {
-                                error = "Batch nicht möglich: Lade zuerst mindestens ein Goldstandard-Testaudio."
-                            }
-                            !installedIds.contains(selectedModel.id) -> {
-                                error = "Batch nicht möglich: Installiere zuerst das aktive Modell ${selectedModel.displayName}."
-                            }
-                            else -> {
-                                scope.launch {
-                                    error = null
-                                    result = null
-                                    batchReport = null
-                                    progress = 0
-                                    busyLabel = "Batch 0/${batchSamples.size} vorbereitet…"
-                                    val runner = BenchmarkRunner(context)
-                                    val results = mutableListOf<BenchmarkResult>()
-                                    runCatching {
-                                        batchSamples.forEachIndexed { index, sample ->
-                                            busyLabel = "Batch ${index + 1}/${batchSamples.size}: ${sample.id}"
-                                            progress = ((index * 100) / batchSamples.size).coerceIn(0, 100)
-                                            val audio = corpusManager.sharedAudio(sample)
-                                            val run = runner.runVosk(audio, selectedModel, sample.referenceText)
-                                            results += run
-                                            historyStore.add(run)
-                                            history = historyStore.load()
-                                            progress = (((index + 1) * 100) / batchSamples.size).coerceIn(0, 100)
-                                        }
-                                        BatchRunReport.from(selectedModel, results)
-                                    }.onSuccess { report ->
-                                        batchReport = report
-                                        result = results.lastOrNull()
-                                        historyExpanded = true
-                                        busyLabel = null
-                                        progress = 100
-                                    }.onFailure { throwable ->
-                                        busyLabel = null
-                                        error = "Batch-Benchmark fehlgeschlagen (${selectedModel.displayName}): ${throwable.message}"
-                                        if (results.isNotEmpty()) {
-                                            batchReport = BatchRunReport.from(selectedModel, results)
-                                            result = results.lastOrNull()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    onCopyReport = { report ->
-                        copyToClipboard(context, "tl;dh STT Bench Batch Report", report.toMarkdown())
-                    },
-                    onClearReport = { batchReport = null }
-                )
-
-                ReferenceTextCard(
+                    modelInstalled = installedIds.contains(selectedModel.id),
+                    selectedSample = selectedSample,
+                    sharedAudio = sharedAudioState.value,
                     referenceText = referenceText,
-                    onReferenceTextChange = { referenceText = it },
-                    onPasteFromClipboard = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val clip = clipboard.primaryClip
-                        val text = clip?.takeIf { it.itemCount > 0 }
-                            ?.getItemAt(0)
-                            ?.coerceToText(context)
-                            ?.toString()
-                            .orEmpty()
-                        if (text.isNotBlank()) referenceText = text
-                    },
-                    onClear = { referenceText = "" }
+                    installedSampleCount = installedSampleIds.size,
+                    totalSampleCount = BuiltInReferenceCorpus.samples.size,
+                    busyLabel = busyLabel,
+                    progress = progress
                 )
+                SectionNav(selected = selectedSection, onSelect = { selectedSection = it })
 
-                CardBlock(title = "Vosk Modelle") {
-                    Text("Ampel: Geschwindigkeit / Genauigkeit / Handy-Eignung", color = TextMuted, lineHeight = 20.sp)
-                    Spacer(Modifier.height(8.dp))
-                    VoskModelCatalog.models.forEach { spec ->
-                        ModelCard(
-                            spec = spec,
-                            selected = spec.id == selectedModel.id,
-                            installed = installedIds.contains(spec.id),
-                            busy = busyLabel != null,
-                            progress = progress,
-                            busyLabel = busyLabel,
-                            onSelect = {
-                                selectedModel = spec
-                                result = null
+                when (selectedSection) {
+                    BenchSection.Start -> StartSection(
+                        appVersion = BuildConfig.VERSION_NAME,
+                        onGoModels = { selectedSection = BenchSection.Models },
+                        onGoCorpus = { selectedSection = BenchSection.Corpus },
+                        onGoRun = { selectedSection = BenchSection.Run },
+                        onGoUpdates = { selectedSection = BenchSection.Updates }
+                    )
+
+                    BenchSection.Models -> ModelsSection(
+                        selectedModel = selectedModel,
+                        installedIds = installedIds,
+                        busyLabel = busyLabel,
+                        progress = progress,
+                        onSelect = { spec ->
+                            selectedModel = spec
+                            result = null
+                            error = null
+                        },
+                        onDownload = { spec ->
+                            scope.launch {
                                 error = null
-                            },
-                            onDownload = {
-                                scope.launch {
-                                    error = null
-                                    result = null
-                                    progress = 0
-                                    busyLabel = "Download ${spec.displayName}…"
-                                    runCatching {
-                                        modelManager.downloadAndInstall(spec) { progress = it }
-                                    }.onSuccess {
+                                result = null
+                                progress = 0
+                                busyLabel = "Download ${spec.displayName}…"
+                                runCatching { modelManager.downloadAndInstall(spec) { progress = it } }
+                                    .onSuccess {
                                         installedIds = modelManager.installedIds()
                                         busyLabel = null
-                                    }.onFailure {
+                                    }
+                                    .onFailure {
                                         busyLabel = null
                                         error = "Modell-Download/Installation fehlgeschlagen (${spec.displayName}): ${it.message}"
+                                        selectedSection = BenchSection.Results
                                     }
-                                }
-                            },
-                            onDelete = {
-                                scope.launch {
-                                    error = null
-                                    result = null
-                                    busyLabel = "Lösche ${spec.displayName}…"
-                                    runCatching { modelManager.delete(spec) }
-                                        .onSuccess {
-                                            installedIds = modelManager.installedIds()
-                                            busyLabel = null
-                                        }
-                                        .onFailure {
-                                            busyLabel = null
-                                            error = "Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
-                                        }
+                            }
+                        },
+                        onDelete = { spec ->
+                            scope.launch {
+                                error = null
+                                result = null
+                                busyLabel = "Lösche ${spec.displayName}…"
+                                runCatching { modelManager.delete(spec) }
+                                    .onSuccess {
+                                        installedIds = modelManager.installedIds()
+                                        busyLabel = null
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        error = "Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        }
+                    )
+
+                    BenchSection.Corpus -> CorpusSection(
+                        installedSampleIds = installedSampleIds,
+                        selectedSample = selectedSample,
+                        busy = busyLabel != null,
+                        progress = progress,
+                        busyLabel = busyLabel,
+                        onDownloadAll = {
+                            scope.launch {
+                                error = null
+                                result = null
+                                progress = 0
+                                busyLabel = "Lade Goldstandard-Testaudios…"
+                                runCatching {
+                                    corpusManager.downloadAll(BuiltInReferenceCorpus.samples) { label, pct ->
+                                        busyLabel = label
+                                        progress = pct
+                                    }
+                                }.onSuccess {
+                                    installedSampleIds = corpusManager.installedIds()
+                                    busyLabel = null
+                                    progress = 100
+                                }.onFailure {
+                                    busyLabel = null
+                                    error = "Goldstandard-Download fehlgeschlagen: ${it.message}"
+                                    selectedSection = BenchSection.Results
                                 }
                             }
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
-                    if (busyLabel?.startsWith("Download") == true) Text("$busyLabel $progress%", color = TextMuted)
-                }
-
-                CardBlock(title = "Geteilte Audio") {
-                    val shared = sharedAudioState.value
-                    Text(
-                        if (shared == null) "Teile eine WhatsApp/Telegram-Audio an diese Benchmark-App." else "Audio empfangen: ${shared.mimeType ?: "unbekannter MIME-Type"}",
-                        color = if (shared == null) TextMuted else Good
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
-                    selectedSample?.let { sample ->
-                        Text("Goldstandard: ${sample.id} · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = {
-                                val audio = sharedAudioState.value ?: return@Button
-                                scope.launch {
-                                    error = null
-                                    result = null
-                                    busyLabel = "Benchmark läuft…"
-                                    runCatching {
-                                        BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
-                                    }.onSuccess {
-                                        result = it
-                                        historyStore.add(it)
-                                        history = historyStore.load()
-                                        historyExpanded = true
+                        },
+                        onDownload = { sample ->
+                            scope.launch {
+                                error = null
+                                result = null
+                                progress = 0
+                                busyLabel = "Lade ${sample.id}…"
+                                runCatching { corpusManager.download(sample) { progress = it } }
+                                    .onSuccess {
+                                        installedSampleIds = corpusManager.installedIds()
                                         busyLabel = null
-                                    }.onFailure {
-                                        busyLabel = null
-                                        error = "Benchmark fehlgeschlagen (${selectedModel.displayName}): ${it.message}"
                                     }
-                                }
-                            },
-                            enabled = sharedAudioState.value != null && installedIds.contains(selectedModel.id) && busyLabel == null,
-                            colors = benchButtonColors()
-                        ) { Text("Benchmark starten") }
-                        OutlinedButton(onClick = { resetBenchmark() }, enabled = busyLabel == null) {
-                            Text("Reset")
+                                    .onFailure {
+                                        busyLabel = null
+                                        error = "Testaudio-Download fehlgeschlagen (${sample.id}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        },
+                        onSelect = { sample -> selectReferenceSample(sample) },
+                        onDelete = { sample ->
+                            scope.launch {
+                                error = null
+                                result = null
+                                busyLabel = "Lösche ${sample.id}…"
+                                runCatching { corpusManager.delete(sample) }
+                                    .onSuccess {
+                                        installedSampleIds = corpusManager.installedIds()
+                                        if (selectedSample?.id == sample.id) {
+                                            selectedSample = null
+                                            sharedAudioState.value = null
+                                        }
+                                        busyLabel = null
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        error = "Testaudio konnte nicht gelöscht werden (${sample.id}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        },
+                        onClear = {
+                            scope.launch {
+                                error = null
+                                result = null
+                                busyLabel = "Lösche Goldstandard-Testaudios…"
+                                runCatching { corpusManager.clear() }
+                                    .onSuccess {
+                                        installedSampleIds = corpusManager.installedIds()
+                                        selectedSample = null
+                                        sharedAudioState.value = null
+                                        busyLabel = null
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        error = "Goldstandard-Testaudios konnten nicht gelöscht werden: ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
                         }
-                    }
-                    if (!installedIds.contains(selectedModel.id)) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
-                    }
-                    if (busyLabel?.contains("Benchmark") == true) Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(color = Accent2)
-                        Text(busyLabel ?: "", color = TextMuted)
-                    }
-                }
+                    )
 
-                error?.let { ErrorCard(it) }
-                result?.let { currentResult ->
-                    ResultCard(
-                        result = currentResult,
-                        onReset = { resetBenchmark() },
-                        onCopyReport = {
-                            copyToClipboard(context, "tl;dh STT Bench Einzelreport", currentResult.toMarkdown())
-                        }
+                    BenchSection.Run -> RunSection(
+                        sharedAudio = sharedAudioState.value,
+                        selectedModel = selectedModel,
+                        selectedModelInstalled = installedIds.contains(selectedModel.id),
+                        selectedSample = selectedSample,
+                        referenceText = referenceText,
+                        installedSampleCount = installedSampleIds.size,
+                        totalSampleCount = BuiltInReferenceCorpus.samples.size,
+                        busy = busyLabel != null,
+                        progress = progress,
+                        busyLabel = busyLabel,
+                        batchRepeatCount = batchRepeatCount,
+                        batchReport = batchReport,
+                        onReferenceTextChange = { referenceText = it },
+                        onPasteReference = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
+                                ?.getItemAt(0)
+                                ?.coerceToText(context)
+                                ?.toString()
+                                .orEmpty()
+                            if (text.isNotBlank()) referenceText = text
+                        },
+                        onClearReference = { referenceText = "" },
+                        onRunSingle = { runSingleBenchmark() },
+                        onReset = { resetBenchmark(clearBatch = false) },
+                        onBatchRepeatChange = { batchRepeatCount = it },
+                        onRunBatch = { runBatchBenchmark() },
+                        onCopyBatchReport = { report -> copyToClipboard(context, "tl;dh STT Bench Batch Report", report.toMarkdown()) },
+                        onClearBatchReport = { batchReport = null }
+                    )
+
+                    BenchSection.Results -> ResultsSection(
+                        error = error,
+                        result = result,
+                        batchReport = batchReport,
+                        history = history,
+                        historyExpanded = historyExpanded,
+                        onReset = { resetBenchmark(clearBatch = false) },
+                        onCopyResult = { current -> copyToClipboard(context, "tl;dh STT Bench Einzelreport", current.toMarkdown()) },
+                        onCopyBatch = { report -> copyToClipboard(context, "tl;dh STT Bench Batch Report", report.toMarkdown()) },
+                        onClearBatch = { batchReport = null },
+                        onHistoryToggle = { historyExpanded = !historyExpanded },
+                        onHistoryClear = {
+                            historyStore.clear()
+                            history = emptyList()
+                        },
+                        onGoRun = { selectedSection = BenchSection.Run }
+                    )
+
+                    BenchSection.Updates -> ManualBenchmarkUpdaterCard(
+                        appVersion = BuildConfig.VERSION_NAME,
+                        repositorySlug = BuildConfig.GITHUB_REPOSITORY
                     )
                 }
             }
         }
     }
 }
+
+private enum class BenchSection(val label: String) {
+    Start("Start"),
+    Models("Modelle"),
+    Corpus("Goldstandard"),
+    Run("Benchmark"),
+    Results("Ergebnisse"),
+    Updates("Updates")
+}
+
+private sealed interface BenchUpdateUiState {
+    data object Idle : BenchUpdateUiState
+    data object Checking : BenchUpdateUiState
+    data object UpToDate : BenchUpdateUiState
+    data class Available(val update: BenchmarkUpdate) : BenchUpdateUiState
+    data class Downloading(val update: BenchmarkUpdate, val progress: Float) : BenchUpdateUiState
+    data class ReadyToInstall(val update: BenchmarkUpdate, val apkFile: File) : BenchUpdateUiState
+    data class Error(val message: String) : BenchUpdateUiState
+}
+
+@Composable
+private fun SectionNav(selected: BenchSection, onSelect: (BenchSection) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            BenchSection.entries.chunked(3).forEach { rowItems ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    rowItems.forEach { section ->
+                        val active = section == selected
+                        if (active) {
+                            Button(
+                                onClick = { onSelect(section) },
+                                modifier = Modifier.weight(1f),
+                                colors = benchButtonColors()
+                            ) { Text(section.label, fontSize = 12.sp) }
+                        } else {
+                            OutlinedButton(
+                                onClick = { onSelect(section) },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(section.label, fontSize = 12.sp) }
+                        }
+                    }
+                    repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveSetupCard(
+    selectedModel: VoskModelSpec,
+    modelInstalled: Boolean,
+    selectedSample: ReferenceSample?,
+    sharedAudio: SharedAudio?,
+    referenceText: String,
+    installedSampleCount: Int,
+    totalSampleCount: Int,
+    busyLabel: String?,
+    progress: Int
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = Surface2), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Aktueller Prüfstand", color = TextMain, fontWeight = FontWeight.Bold)
+                    Text("Modell: ${selectedModel.displayName}", color = if (modelInstalled) Good else Warn, lineHeight = 18.sp)
+                    Text("Audio: ${selectedSample?.id ?: sharedAudio?.mimeType ?: "noch keine Quelle"}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
+                }
+                Text("$installedSampleCount/$totalSampleCount", color = if (installedSampleCount > 0) Good else TextMuted, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                if (referenceText.isBlank()) "Referenzvergleich inaktiv" else "Referenzvergleich aktiv · ${referenceText.wordCount()} Wörter",
+                color = if (referenceText.isBlank()) TextMuted else Good,
+                fontSize = 13.sp
+            )
+            busyLabel?.let {
+                LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Text("$it $progress%", color = TextMuted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StartSection(
+    appVersion: String,
+    onGoModels: () -> Unit,
+    onGoCorpus: () -> Unit,
+    onGoRun: () -> Unit,
+    onGoUpdates: () -> Unit
+) {
+    CardBlock(title = "Geführter Ablauf") {
+        Text("Version v$appVersion · separater STT-Benchmark. Die Haupt-App tl;dh bleibt unberührt.", color = TextMuted, lineHeight = 20.sp)
+        Spacer(Modifier.height(8.dp))
+        StepText("1", "Modell installieren oder wechseln", "Small DE fürs Handy, Big DE als Qualitäts-/Stressprobe.")
+        StepText("2", "Goldstandard laden", "Starter-Korpus plus Langlauf-Batch für längere Messstrecken.")
+        StepText("3", "Benchmark starten", "Einzeltest oder Batch laufen lassen; Ergebnis öffnet danach im Ergebnisbereich.")
+        StepText("4", "Report kopieren", "Markdown-Report für Vergleich und nächste Modellentscheidung.")
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = onGoModels, modifier = Modifier.weight(1f), colors = benchButtonColors()) { Text("Modelle") }
+            Button(onClick = onGoCorpus, modifier = Modifier.weight(1f), colors = benchButtonColors()) { Text("Goldstandard") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onGoRun, modifier = Modifier.weight(1f)) { Text("Benchmark") }
+            OutlinedButton(onClick = onGoUpdates, modifier = Modifier.weight(1f)) { Text("Updates") }
+        }
+    }
+    CardBlock(title = "Was wurde am UI geändert?") {
+        Text("Die App nutzt jetzt getrennte Bereiche statt einem langen Endlos-Scroll. Nach Einzel- oder Batchlauf springt sie logisch in den Ergebnisbereich; der Scroll startet dort oben.", color = TextMuted, lineHeight = 20.sp)
+    }
+}
+
+@Composable
+private fun StepText(number: String, title: String, body: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .background(Accent, CircleShape),
+            contentAlignment = Alignment.Center
+        ) { Text(number, color = TextMain, fontWeight = FontWeight.Bold) }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = TextMain, fontWeight = FontWeight.SemiBold)
+            Text(body, color = TextMuted, lineHeight = 18.sp, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun ModelsSection(
+    selectedModel: VoskModelSpec,
+    installedIds: Set<String>,
+    busyLabel: String?,
+    progress: Int,
+    onSelect: (VoskModelSpec) -> Unit,
+    onDownload: (VoskModelSpec) -> Unit,
+    onDelete: (VoskModelSpec) -> Unit
+) {
+    CardBlock(title = "Vosk Modelle") {
+        Text("Installieren, auswählen, danach ohne App-Neustart benchmarken. Ampel: Geschwindigkeit / Genauigkeit / Handy-Eignung.", color = TextMuted, lineHeight = 20.sp)
+        Spacer(Modifier.height(8.dp))
+        VoskModelCatalog.models.forEach { spec ->
+            ModelCard(
+                spec = spec,
+                selected = spec.id == selectedModel.id,
+                installed = installedIds.contains(spec.id),
+                busy = busyLabel != null,
+                progress = progress,
+                busyLabel = busyLabel,
+                onSelect = { onSelect(spec) },
+                onDownload = { onDownload(spec) },
+                onDelete = { onDelete(spec) }
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+        if (busyLabel?.startsWith("Download") == true) Text("$busyLabel $progress%", color = TextMuted)
+    }
+}
+
+@Composable
+private fun CorpusSection(
+    installedSampleIds: Set<String>,
+    selectedSample: ReferenceSample?,
+    busy: Boolean,
+    progress: Int,
+    busyLabel: String?,
+    onDownloadAll: () -> Unit,
+    onDownload: (ReferenceSample) -> Unit,
+    onSelect: (ReferenceSample) -> Unit,
+    onDelete: (ReferenceSample) -> Unit,
+    onClear: () -> Unit
+) {
+    GoldstandardCorpusCard(
+        samples = BuiltInReferenceCorpus.samples,
+        installedIds = installedSampleIds,
+        selectedSample = selectedSample,
+        busy = busy,
+        progress = progress,
+        busyLabel = busyLabel,
+        onDownloadAll = onDownloadAll,
+        onDownload = onDownload,
+        onSelect = onSelect,
+        onDelete = onDelete,
+        onClear = onClear
+    )
+    CardBlock(title = "Längere Goldstandard-Läufe") {
+        Text("Der Starter-Korpus besteht bewusst aus kurzen CC0-Referenzsätzen. Für längere Modellvergleiche nutzt der Batch-Benchmark jetzt Wiederholprofile: 1×, 3×, 8× oder 20× alle installierten Samples. Das ist kein Ersatz für ein echtes langes WhatsApp-Audio, aber deutlich besser für reproduzierbare RTF-/WER-Modellvergleiche.", color = TextMuted, lineHeight = 20.sp)
+    }
+}
+
+@Composable
+private fun RunSection(
+    sharedAudio: SharedAudio?,
+    selectedModel: VoskModelSpec,
+    selectedModelInstalled: Boolean,
+    selectedSample: ReferenceSample?,
+    referenceText: String,
+    installedSampleCount: Int,
+    totalSampleCount: Int,
+    busy: Boolean,
+    progress: Int,
+    busyLabel: String?,
+    batchRepeatCount: Int,
+    batchReport: BatchRunReport?,
+    onReferenceTextChange: (String) -> Unit,
+    onPasteReference: () -> Unit,
+    onClearReference: () -> Unit,
+    onRunSingle: () -> Unit,
+    onReset: () -> Unit,
+    onBatchRepeatChange: (Int) -> Unit,
+    onRunBatch: () -> Unit,
+    onCopyBatchReport: (BatchRunReport) -> Unit,
+    onClearBatchReport: () -> Unit
+) {
+    BenchmarkActionCard(
+        sharedAudio = sharedAudio,
+        selectedModel = selectedModel,
+        selectedModelInstalled = selectedModelInstalled,
+        selectedSample = selectedSample,
+        busy = busy,
+        busyLabel = busyLabel,
+        onRunSingle = onRunSingle,
+        onReset = onReset
+    )
+    ReferenceTextCard(
+        referenceText = referenceText,
+        onReferenceTextChange = onReferenceTextChange,
+        onPasteFromClipboard = onPasteReference,
+        onClear = onClearReference
+    )
+    BatchBenchmarkCard(
+        installedCount = installedSampleCount,
+        totalCount = totalSampleCount,
+        selectedModel = selectedModel,
+        selectedModelInstalled = selectedModelInstalled,
+        busy = busy,
+        progress = progress,
+        busyLabel = busyLabel,
+        batchRepeatCount = batchRepeatCount,
+        batchReport = batchReport,
+        onRepeatChange = onBatchRepeatChange,
+        onRunBatch = onRunBatch,
+        onCopyReport = onCopyBatchReport,
+        onClearReport = onClearBatchReport
+    )
+}
+
+@Composable
+private fun BenchmarkActionCard(
+    sharedAudio: SharedAudio?,
+    selectedModel: VoskModelSpec,
+    selectedModelInstalled: Boolean,
+    selectedSample: ReferenceSample?,
+    busy: Boolean,
+    busyLabel: String?,
+    onRunSingle: () -> Unit,
+    onReset: () -> Unit
+) {
+    CardBlock(title = "Einzelbenchmark") {
+        Text(
+            if (sharedAudio == null) "Teile eine WhatsApp/Telegram-Audio an diese Benchmark-App oder wähle ein Goldstandard-Sample." else "Audio bereit: ${sharedAudio.mimeType ?: "unbekannter MIME-Type"}",
+            color = if (sharedAudio == null) TextMuted else Good
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+        selectedSample?.let { Text("Goldstandard: ${it.id} · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold) }
+        if (!selectedModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onRunSingle,
+                enabled = sharedAudio != null && selectedModelInstalled && !busy,
+                colors = benchButtonColors()
+            ) { Text("Benchmark starten") }
+            OutlinedButton(onClick = onReset, enabled = !busy) { Text("Reset") }
+        }
+        if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(color = Accent2)
+                Text(busyLabel, color = TextMuted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultsSection(
+    error: String?,
+    result: BenchmarkResult?,
+    batchReport: BatchRunReport?,
+    history: List<BenchmarkHistoryItem>,
+    historyExpanded: Boolean,
+    onReset: () -> Unit,
+    onCopyResult: (BenchmarkResult) -> Unit,
+    onCopyBatch: (BatchRunReport) -> Unit,
+    onClearBatch: () -> Unit,
+    onHistoryToggle: () -> Unit,
+    onHistoryClear: () -> Unit,
+    onGoRun: () -> Unit
+) {
+    if (error == null && result == null && batchReport == null && history.isEmpty()) {
+        CardBlock(title = "Noch kein Ergebnis") {
+            Text("Starte einen Einzel- oder Batchbenchmark. Danach landet die App automatisch hier oben im Ergebnisbereich.", color = TextMuted, lineHeight = 20.sp)
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onGoRun, colors = benchButtonColors()) { Text("Zum Benchmark") }
+        }
+    }
+    error?.let { ErrorCard(it) }
+    result?.let { current ->
+        ResultCard(result = current, onReset = onReset, onCopyReport = { onCopyResult(current) })
+    }
+    batchReport?.let { report ->
+        CardBlock(title = "Batch-Report") {
+            BatchReportBlock(report)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { onCopyBatch(report) }) { Text("Report kopieren") }
+                OutlinedButton(onClick = onClearBatch) { Text("Report leeren") }
+            }
+        }
+    }
+    HistoryCard(history = history, expanded = historyExpanded, onToggle = onHistoryToggle, onClear = onHistoryClear)
+}
+
+@Composable
+private fun ManualBenchmarkUpdaterCard(appVersion: String, repositorySlug: String) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    var updateState by remember { mutableStateOf<BenchUpdateUiState>(BenchUpdateUiState.Idle) }
+    val repositoryConfigured = repositorySlug.contains('/')
+    val downloadActive = updateState is BenchUpdateUiState.Downloading
+
+    DisposableEffect(downloadActive, view) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = downloadActive || previous
+        onDispose { view.keepScreenOn = previous }
+    }
+
+    CardBlock(title = "In-App Update") {
+        Text("Manueller Update-Check nur für die Benchmark-App. Es werden ausschließlich Releases mit Tag `stt-bench-vX.Y.Z` und Asset `tldh-stt-bench-X.Y.Z.apk` berücksichtigt.", color = TextMuted, lineHeight = 20.sp)
+        Spacer(Modifier.height(8.dp))
+        Text("Installiert: v$appVersion", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text("Repo: ${repositorySlug.ifBlank { "nicht konfiguriert" }}", color = TextMuted)
+        Spacer(Modifier.height(10.dp))
+        when (val current = updateState) {
+            BenchUpdateUiState.Idle -> {
+                Button(
+                    enabled = repositoryConfigured,
+                    onClick = {
+                        scope.launch {
+                            updateState = BenchUpdateUiState.Checking
+                            updateState = runCatching {
+                                val releases = GitHubReleaseClient(repositorySlug).fetchStableReleases()
+                                val update = BenchmarkReleaseSelector().select(appVersion, releases)
+                                if (update == null) BenchUpdateUiState.UpToDate else BenchUpdateUiState.Available(update)
+                            }.getOrElse { BenchUpdateUiState.Error(it.message ?: "Update-Prüfung fehlgeschlagen.") }
+                        }
+                    },
+                    colors = benchButtonColors()
+                ) { Text("Nach Bench-Update suchen") }
+                if (!repositoryConfigured) Text("GitHub Repository wurde im Build nicht gesetzt. Release-Builds aus GitHub Actions konfigurieren das automatisch.", color = Bad, lineHeight = 20.sp)
+            }
+            BenchUpdateUiState.Checking -> {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("Prüfe Benchmark-Releases …", color = TextMuted)
+            }
+            BenchUpdateUiState.UpToDate -> {
+                Text("Du nutzt bereits den aktuellsten Benchmark-Release.", color = Good)
+                OutlinedButton(onClick = { updateState = BenchUpdateUiState.Idle }) { Text("Erneut prüfen") }
+            }
+            is BenchUpdateUiState.Available -> {
+                Text("Benchmark-Update verfügbar: v${current.update.version}", color = Good, fontWeight = FontWeight.Bold)
+                Text(current.update.apk.name, color = TextMuted)
+                current.update.apk.sizeBytes?.let { Text("Größe: ${formatBytes(it)}", color = TextMuted) }
+                Text("Während des Downloads bleibt die App wach. Nach SHA256-Prüfung wird der Android-Installer geöffnet.", color = TextMuted, lineHeight = 20.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            updateState = BenchUpdateUiState.Downloading(current.update, 0f)
+                            updateState = runCatching {
+                                val file = UpdateDownloadGuard(context).runGuardedDownload {
+                                    GitHubReleaseClient(repositorySlug).downloadAsset(
+                                        asset = current.update.apk,
+                                        destinationDir = File(context.cacheDir, "updates"),
+                                        progress = { pct -> scope.launch { updateState = BenchUpdateUiState.Downloading(current.update, pct) } }
+                                    )
+                                }
+                                BenchUpdateUiState.ReadyToInstall(current.update, file)
+                            }.getOrElse { BenchUpdateUiState.Error(it.message ?: "Download fehlgeschlagen.") }
+                        }
+                    }, colors = benchButtonColors()) { Text("Download") }
+                    OutlinedButton(onClick = { updateState = BenchUpdateUiState.Idle }) { Text("Abbrechen") }
+                }
+            }
+            is BenchUpdateUiState.Downloading -> {
+                LinearProgressIndicator(progress = { current.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Text("Download läuft … ${(current.progress * 100).toInt()} %", color = TextMuted)
+                Text("Wake-Lock aktiv, damit Android den Download beim ausgeschalteten Display nicht abwürgt.", color = Good, lineHeight = 20.sp)
+            }
+            is BenchUpdateUiState.ReadyToInstall -> {
+                Text("Download verifiziert. SHA256 korrekt.", color = Good, fontWeight = FontWeight.Bold)
+                Text(current.update.apk.name, color = TextMuted)
+                Button(onClick = { context.startActivity(ApkInstaller(context).createInstallIntent(current.apkFile)) }, colors = benchButtonColors()) { Text("Installieren") }
+            }
+            is BenchUpdateUiState.Error -> {
+                Text("Update-Prüfung fehlgeschlagen", color = Bad, fontWeight = FontWeight.Bold)
+                Text(current.message, color = TextMuted, lineHeight = 20.sp)
+                OutlinedButton(onClick = { updateState = BenchUpdateUiState.Idle }) { Text("Zurück") }
+            }
+        }
+    }
+}
+
+private fun String.wordCount(): Int = trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
 
 @Composable
 private fun benchButtonColors() = ButtonDefaults.buttonColors(
@@ -611,39 +1030,42 @@ private fun BatchBenchmarkCard(
     busy: Boolean,
     progress: Int,
     busyLabel: String?,
+    batchRepeatCount: Int,
     batchReport: BatchRunReport?,
+    onRepeatChange: (Int) -> Unit,
     onRunBatch: () -> Unit,
     onCopyReport: (BatchRunReport) -> Unit,
     onClearReport: () -> Unit
 ) {
-    CardBlock(title = "Batch-Benchmark / Modellvergleich") {
+    CardBlock(title = "Batch-Benchmark / Langlauf") {
         Text(
-            "Startet alle bereits geladenen Goldstandard-Audios nacheinander mit dem aktiven Modell und erzeugt einen aggregierten Markdown-Report. Ideal für Small vs. Big DE Vergleich ohne App-Neustart.",
+            "Startet alle geladenen Goldstandard-Audios mit dem aktiven Modell und erzeugt einen aggregierten Markdown-Report. Wiederholprofile erzeugen längere, reproduzierbare Messstrecken für RTF/WER/CER.",
             color = TextMuted,
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
         Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
-        Text(
-            "Goldstandard-Audios bereit: $installedCount/$totalCount",
-            color = if (installedCount > 0) Good else TextMuted
-        )
-        Text(
-            if (selectedModelInstalled) "Modell installiert: ja" else "Modell installiert: nein",
-            color = if (selectedModelInstalled) Good else Warn
-        )
+        Text("Goldstandard-Audios bereit: $installedCount/$totalCount", color = if (installedCount > 0) Good else TextMuted)
+        Text(if (selectedModelInstalled) "Modell installiert: ja" else "Modell installiert: nein", color = if (selectedModelInstalled) Good else Warn)
+        Text("Geplante Läufe: ${installedCount * batchRepeatCount} · Profil: ${batchRepeatCount}× Corpus", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(1, 3, 8, 20).forEach { repeatCount ->
+                if (repeatCount == batchRepeatCount) {
+                    Button(onClick = { onRepeatChange(repeatCount) }, modifier = Modifier.weight(1f), enabled = !busy, colors = benchButtonColors()) { Text("${repeatCount}×") }
+                } else {
+                    OutlinedButton(onClick = { onRepeatChange(repeatCount) }, modifier = Modifier.weight(1f), enabled = !busy) { Text("${repeatCount}×") }
+                }
+            }
+        }
+        Text("Hinweis: Das ist ein reproduzierbarer Langlauf über mehrere Referenzdateien, kein künstlich zusammengeklebtes WhatsApp-Audio. Für echte Long-Form-Audios weiter eigene Dateien teilen.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(
                 onClick = onRunBatch,
                 enabled = !busy && installedCount > 0 && selectedModelInstalled,
                 colors = benchButtonColors()
             ) { Text("Batch starten") }
-            OutlinedButton(onClick = { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null) {
-                Text("Batch-Report kopieren")
-            }
-            OutlinedButton(onClick = onClearReport, enabled = !busy && batchReport != null) {
-                Text("Report leeren")
-            }
+            OutlinedButton(onClick = { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null) { Text("Report kopieren") }
+            OutlinedButton(onClick = onClearReport, enabled = !busy && batchReport != null) { Text("Leeren") }
         }
         if (busyLabel?.startsWith("Batch") == true) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -665,7 +1087,7 @@ private fun BatchReportBlock(report: BatchRunReport) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Batch-Ergebnis", color = TextMain, fontWeight = FontWeight.Bold)
-        Text("${report.modelName} · ${report.sampleCount} Samples · ${formatHistoryTime(report.createdAtMs)}", color = TextMuted)
+        Text("${report.modelName} · ${report.sampleCount} Läufe · ${report.repeatCount}× Corpus · ${formatHistoryTime(report.createdAtMs)}", color = TextMuted)
         Text(
             "Ø RTF: ${report.avgRtf?.let { fmtNumber(it) } ?: "n/a"} · Ø WER: ${report.avgWerPercent?.let { fmtPct(it) } ?: "n/a"} · Ø CER: ${report.avgCerPercent?.let { fmtPct(it) } ?: "n/a"}",
             color = TextMain,
@@ -1003,7 +1425,8 @@ private data class BatchRunReport(
     val modelName: String,
     val modelId: String,
     val createdAtMs: Long,
-    val results: List<BenchmarkResult>
+    val results: List<BenchmarkResult>,
+    val repeatCount: Int = 1
 ) {
     val sampleCount: Int = results.size
     val avgRtf: Double? = results.mapNotNull { it.timing.rtf }.averageOrNull()
@@ -1018,11 +1441,12 @@ private data class BatchRunReport(
         ?: "n/a"
 
     companion object {
-        fun from(model: VoskModelSpec, results: List<BenchmarkResult>): BatchRunReport = BatchRunReport(
+        fun from(model: VoskModelSpec, results: List<BenchmarkResult>, repeatCount: Int = 1): BatchRunReport = BatchRunReport(
             modelName = model.displayName,
             modelId = model.id,
             createdAtMs = System.currentTimeMillis(),
-            results = results.toList()
+            results = results.toList(),
+            repeatCount = repeatCount
         )
     }
 }
@@ -1033,7 +1457,8 @@ private fun BatchRunReport.toMarkdown(): String {
     lines += ""
     lines += "- Modell: $modelName (`$modelId`)"
     lines += "- Zeitpunkt: ${formatHistoryTime(createdAtMs)}"
-    lines += "- Samples: $sampleCount"
+    lines += "- Läufe: $sampleCount"
+    lines += "- Profil: ${repeatCount}× Corpus"
     lines += "- Speed-Pass: $speedPassCount/$speedEvaluatedCount"
     lines += "- Ø RTF: ${avgRtf?.let { fmtNumber(it) } ?: "n/a"}"
     lines += "- Ø WER: ${avgWerPercent?.let { fmtPct(it) } ?: "n/a"}"
@@ -1128,6 +1553,13 @@ private fun fmtNumber(value: Double): String = String.format(Locale.GERMANY, "%.
 private fun formatHistoryTime(timestampMs: Long): String {
     if (timestampMs <= 0L) return "Zeitpunkt unbekannt"
     return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.GERMANY).format(Date(timestampMs))
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> String.format(Locale.GERMANY, "%.2f GB", bytes / 1_000_000_000.0)
+    bytes >= 1_000_000L -> String.format(Locale.GERMANY, "%.1f MB", bytes / 1_000_000.0)
+    bytes >= 1_000L -> String.format(Locale.GERMANY, "%.1f KB", bytes / 1_000.0)
+    else -> "$bytes B"
 }
 
 private fun fmtMs(ms: Long?): String {

@@ -16,9 +16,9 @@ permissions:
   contents: write
 
 env:
-  VERSION_NAME: 0.2.5
-  VERSION_CODE: 205
-  RELEASE_TAG: stt-bench-v0.2.5
+  VERSION_NAME: 0.2.6
+  VERSION_CODE: 206
+  RELEASE_TAG: stt-bench-v0.2.6
 
 jobs:
   verify_benchmark_app:
@@ -41,7 +41,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Build debug benchmark APK and run tests
-        run: bash scripts/gradle.sh lintDebug testDebugUnitTest assembleDebug
+        run: bash scripts/gradle.sh -PGITHUB_REPOSITORY="${GITHUB_REPOSITORY}" lintDebug testDebugUnitTest assembleDebug
 
       - name: Collect debug benchmark APK
         if: success()
@@ -112,7 +112,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: bash scripts/gradle.sh -PVERSION_NAME="${VERSION_NAME}" -PVERSION_CODE="${VERSION_CODE}" assembleRelease
+        run: bash scripts/gradle.sh -PVERSION_NAME="${VERSION_NAME}" -PVERSION_CODE="${VERSION_CODE}" -PGITHUB_REPOSITORY="${GITHUB_REPOSITORY}" assembleRelease
 
       - name: Package benchmark release assets
         if: steps.release_check.outputs.exists == 'false'

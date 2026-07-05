@@ -5,11 +5,16 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.2.5"
+    ?: "0.2.6"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "205").toInt()
+    ?: "206").toInt()
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+
+val githubRepositoryRaw = (findProperty("GITHUB_REPOSITORY") as String?)
+    ?: System.getenv("GITHUB_REPOSITORY")
+    ?: ""
+val githubRepository = githubRepositoryRaw.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "dev.bitsbots.tldhbench"
@@ -23,6 +28,7 @@ android {
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resValue("string", "distribution_channel", "benchmark")
+        buildConfigField("String", "GITHUB_REPOSITORY", "\"$githubRepository\"")
         vectorDrawables { useSupportLibrary = true }
     }
 

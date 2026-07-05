@@ -2,9 +2,9 @@
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.2.5
+## Current release: 0.2.6
 
-Focus: Vosk multi-model testing with built-in gold-standard starter corpus, WER/CER reference comparison, FLAC reference-audio support, fixed dark UI contrast, batch corpus runs, and Markdown benchmark reports.
+Focus: Vosk multi-model testing with a cleaner section-based UI, restored benchmark updater, built-in gold-standard corpus, WER/CER comparison, batch/long-run profiles, and Markdown benchmark reports.
 
 ## Features
 
@@ -22,7 +22,10 @@ Focus: Vosk multi-model testing with built-in gold-standard starter corpus, WER/
 - Last 5 benchmark runs stored locally inside the benchmark app.
 - Current run reset button; history reset remains separate.
 - Explicit dark theme/text-field colors so reference fields remain readable.
+- Section-based UI: Start, Modelle, Goldstandard, Benchmark, Ergebnisse, Updates.
 - Batch-benchmark all installed gold-standard samples with the active model.
+- Long-run batch profiles: 1×, 3×, 8×, 20× corpus repeats for longer reproducible measurement runs.
+- Benchmark-specific in-app updater for `stt-bench-vX.Y.Z` release APKs.
 - Copy single-run or batch results as Markdown for handover/comparison.
 
 ## Built-in gold-standard starter corpus
@@ -49,4 +52,9 @@ No telemetry. No cloud STT. The reference text, downloaded starter samples, and 
 
 ## Batch reports
 
-After downloading one or more built-in gold-standard samples and installing a Vosk model, use **Batch starten** to run the active model against every installed reference sample. The app summarizes average RTF, WER/CER, speed-pass count, worst WER sample, and per-sample timings. Use **Batch-Report kopieren** to paste the complete Markdown report into GitHub, notes, or the next ChatGPT handover.
+After downloading one or more built-in gold-standard samples and installing a Vosk model, use **Batch starten** to run the active model against every installed reference sample. Choose `1×`, `3×`, `8×`, or `20×` to run longer reproducible workloads. The app summarizes average RTF, WER/CER, speed-pass count, worst WER sample, and per-sample timings. Use **Batch-Report kopieren** to paste the complete Markdown report into GitHub, notes, or the next ChatGPT handover.
+
+
+## In-app updates
+
+The benchmark app includes its own manual updater. It only considers GitHub releases tagged `stt-bench-vX.Y.Z` and assets named `tldh-stt-bench-X.Y.Z.apk`. It does not install or select main `tl;dh` APKs. Downloads are SHA256-checked and guarded with a wake-lock before the Android package installer is opened.

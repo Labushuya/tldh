@@ -1,8 +1,8 @@
 # Benchmark Plan
 
-## v0.2.5 focus
+## v0.2.6 focus
 
-Measure Vosk model speed and recognition quality on real German audio.
+Measure Vosk model speed and recognition quality on real German audio with a clearer section-based workflow and longer repeatable batch profiles.
 
 ## Test flow
 
@@ -18,6 +18,7 @@ Measure Vosk model speed and recognition quality on real German audio.
    - reference vs recognized text
 6. Compare the last 5 benchmark runs in history.
 7. For model-level comparison, run the installed gold-standard corpus as a batch and copy the Markdown report.
+8. For longer repeatable workloads, select 3×, 8×, or 20× corpus repeats before starting the batch.
 
 ## Interpretation
 
@@ -34,3 +35,8 @@ Measure Vosk model speed and recognition quality on real German audio.
 ## Next candidates
 
 If Vosk small remains too inaccurate, continue with preprocessing, context vocabulary, or larger Vosk models before testing other STT engines.
+
+
+## UX notes
+
+The app is split into sections instead of one long scroll stack. After single or batch benchmark completion, the app routes to **Ergebnisse** so the user does not have to hunt for the output. The **Updates** section restores the manual in-app installer for benchmark releases.
