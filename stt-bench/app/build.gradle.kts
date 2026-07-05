@@ -5,10 +5,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.1.3"
+    ?: "0.2.0"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "103").toInt()
+    ?: "200").toInt()
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 android {
@@ -23,8 +23,6 @@ android {
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resValue("string", "distribution_channel", "benchmark")
-        buildConfigField("String", "VOSK_SMALL_DE_URL", "\"https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip\"")
-        buildConfigField("String", "EXPECTED_MODEL_DIR", "\"vosk-model-small-de-0.15\"")
         vectorDrawables { useSupportLibrary = true }
     }
 

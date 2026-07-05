@@ -4,60 +4,42 @@
 
 # tl;dh STT Bench
 
-Separate Android-Benchmark-App für die STT-Engine-Entscheidung von **tl;dh**.
+Separate Android-Benchmark-App für die STT-Engine-Entscheidung von **tl;dh**. Die Haupt-App bleibt unberührt.
 
-Diese App ist bewusst **nicht** die Haupt-App. Sie dient nur dazu, deutsche WhatsApp-/Telegram-Audios gegen lokale STT-Kandidaten zu messen, damit tl;dh nicht mit Benchmark-Code, Experimenten oder halbgaren Engines belastet wird.
+## v0.2.0 Fokus
 
-## Ziel
+Diese Version bleibt primär bei **Vosk**, erweitert den Test aber auf mehrere deutsche Modelle, die live ohne App-Neustart heruntergeladen, gewechselt und gegen dieselbe Audio gebenchmarkt werden können.
 
-Benchmark mit echten geteilten Audios:
+## Modelle
 
-| Audio | Zielzeit |
-|---:|---:|
-| 15 Sekunden | ≤ 15 Sekunden |
-| 1 Minute | ≤ 30 Sekunden |
-| 3 Minuten | ≤ 2 Minuten |
+| Modell | Größe | Ampel-Idee | Zweck |
+|---|---:|---|---|
+| `vosk-model-small-de-0.15` | 45 MB | Speed grün / Genauigkeit gelb | Phone Fast Mode Kandidat |
+| `vosk-model-small-de-zamia-0.3` | 49 MB | Speed grün / Genauigkeit rot | Gegenprobe, nicht empfohlen |
+| `vosk-model-de-0.21` | 1.9 GB | Speed rot / Genauigkeit grün | Quality-/Tower-Vergleich |
+| `vosk-model-de-tuda-0.6-900k` | 4.4 GB | Speed rot / Genauigkeit grün | Extrem-/Tower-Vergleich |
 
-Gemessen werden:
-
-- Audio-Dauer
-- Decode-Zeit
-- Modell-Ladezeit
-- STT-Zeit
-- Gesamtzeit
-- RTF (`processing / audio`)
-- Transkriptqualität anhand echter Audio
-- vollständiges erkanntes Exzerpt mit Zeitstempeln
-
-## Engine in v0.1.0
-
-Erster Kandidat:
-
-- **Vosk small German** `vosk-model-small-de-0.15`
-- Offline
-- Android-tauglich
-- Ziel: schneller Handy-Fast-Mode für kurze deutsche Sprachnotizen
-
-Die App lädt das Modell auf Wunsch aus der offiziellen Vosk-Model-Quelle herunter und speichert es lokal im App-Speicher.
+Die Ampel ist bewusst eine Vorab-Einschätzung. Entscheidend sind Deine echten Benchmark-Werte.
 
 ## Flow
 
 ```text
 WhatsApp Audio teilen
 → tl;dh STT Bench auswählen
-→ Modell installieren, falls nötig
+→ Modell wählen/downloaden
 → Benchmark starten
-→ Ergebnis prüfen
-→ Transkript-Klapptext mit Zeitstempeln gegenhören
+→ Modell ohne Neustart wechseln
+→ erneut benchmarken
+→ Zeiten/RTF/Transkript vergleichen
 ```
+
+## Reset
+
+Nach jedem Benchmark kann das Ergebnis per **Reset** sofort geleert werden, ohne die App neu zu starten. Die geteilte Audio und installierte Modelle bleiben erhalten, sodass mehrere Modelle bequem gegen dieselbe Audio verglichen werden können.
 
 ## Datenschutz
 
 - Keine Cloud-STT.
 - Modell-Download nur auf Nutzerklick.
-- Geteilte Audio wird nur lokal verarbeitet.
-- App ist eine separate Benchmark-App und schreibt keine tl;dh-Haupt-App-Daten.
-
-## Ergebnisnutzung
-
-Die Ergebnisse entscheiden, ob Vosk als Phone-Fast-Mode taugt oder ob wir sherpa-onnx/whisper.cpp/LAN-Accelerator priorisieren.
+- Geteilte Audio wird lokal verarbeitet.
+- Benchmark-App ist getrennt von tl;dh.

@@ -3,6 +3,7 @@ package dev.bitsbots.tldhbench.bench
 import android.content.Context
 import dev.bitsbots.tldhbench.audio.AudioIngestor
 import dev.bitsbots.tldhbench.audio.PcmAudioPreparer
+import dev.bitsbots.tldhbench.audio.PreparedPcmAudio
 import dev.bitsbots.tldhbench.models.VoskModelManager
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.Dispatchers
@@ -13,19 +14,19 @@ import kotlin.system.measureTimeMillis
 class BenchmarkRunner(private val context: Context) {
     private val modelManager = VoskModelManager(context)
 
-    suspend fun runVoskSmallDe(sharedAudio: SharedAudio): BenchmarkResult = withContext(Dispatchers.Default) {
-        if (!modelManager.isInstalled()) {
-            throw IllegalStateException("Vosk small German ist nicht installiert. Erst Modell herunterladen/installieren.")
+    suspend fun runVosk(sharedAudio: SharedAudio, modelSpec: VoskModelSpec): BenchmarkResult = withContext(Dispatchers.Default) {
+        if (!modelManager.isInstalled(modelSpec)) {
+            throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Modell herunterladen/installieren.")
         }
         val started = System.currentTimeMillis()
         val metadata = AudioIngestor(context).inspect(sharedAudio)
         val workDir = File(context.cacheDir, "bench-work").apply { deleteRecursively(); mkdirs() }
-        var prepared: dev.bitsbots.tldhbench.audio.PreparedPcmAudio
+        lateinit var prepared: PreparedPcmAudio
         val decodeMs = measureTimeMillis {
             prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
         }
         val engineOutput = VoskBenchmarkEngine().transcribe(
-            modelDir = modelManager.expectedModelDir,
+            modelDir = modelManager.modelDir(modelSpec),
             pcm = prepared,
             decodeMs = decodeMs,
             totalStartedAtMs = started
@@ -37,16 +38,21 @@ class BenchmarkRunner(private val context: Context) {
             totalMs = engineOutput.totalMs,
             audioDurationMs = metadata.durationMs
         )
+        val modelWarnings = listOfNotNull(
+            if (modelSpec.deviceSignal == Signal.RED) "${modelSpec.displayName} ist laut Ampel eher kein Handy-Modell. Benchmark kann RAM/Download/Zeit stark belasten." else null,
+            if (modelSpec.speedSignal == Signal.RED) "${modelSpec.displayName} priorisiert Qualität gegenüber Geschwindigkeit. RTF kritisch prüfen." else null
+        )
         BenchmarkResult(
             engine = "Vosk",
-            model = "vosk-model-small-de-0.15",
+            model = modelSpec.displayName,
+            modelId = modelSpec.id,
             language = "de-DE",
             metadata = metadata,
             timing = timing,
             transcript = engineOutput.transcript,
             segments = engineOutput.segments,
             verdict = BenchmarkTargets.verdict(metadata.durationMs, timing.totalMs),
-            warnings = metadata.validation.warnings + engineOutput.warnings
+            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings
         )
     }
 }

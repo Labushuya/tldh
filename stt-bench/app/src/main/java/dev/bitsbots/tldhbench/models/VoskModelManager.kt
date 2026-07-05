@@ -1,7 +1,8 @@
 package dev.bitsbots.tldhbench.models
 
 import android.content.Context
-import dev.bitsbots.tldhbench.BuildConfig
+import dev.bitsbots.tldhbench.bench.VoskModelCatalog
+import dev.bitsbots.tldhbench.bench.VoskModelSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
@@ -13,29 +14,42 @@ import java.util.zip.ZipInputStream
 
 class VoskModelManager(private val context: Context) {
     private val modelsRoot: File get() = File(context.filesDir, "models")
-    val expectedModelDir: File get() = File(modelsRoot, BuildConfig.EXPECTED_MODEL_DIR)
-    val tempZip: File get() = File(context.cacheDir, "vosk-model-small-de.zip")
 
-    fun isInstalled(): Boolean = expectedModelDir.isDirectory && File(expectedModelDir, "conf").exists()
+    fun modelDir(spec: VoskModelSpec): File = File(modelsRoot, spec.directoryName)
 
-    suspend fun downloadAndInstallSmallGerman(onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
+    fun isInstalled(spec: VoskModelSpec): Boolean =
+        modelDir(spec).isDirectory && File(modelDir(spec), "conf").exists()
+
+    fun installedIds(): Set<String> = VoskModelCatalog.models
+        .filter { isInstalled(it) }
+        .map { it.id }
+        .toSet()
+
+    suspend fun downloadAndInstall(spec: VoskModelSpec, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
         modelsRoot.mkdirs()
-        expectedModelDir.deleteRecursively()
+        val targetDir = modelDir(spec)
+        val tempZip = File(context.cacheDir, "${spec.id}.zip")
+        targetDir.deleteRecursively()
         tempZip.delete()
-        download(BuildConfig.VOSK_SMALL_DE_URL, tempZip, onProgress)
+        download(spec.url, tempZip, onProgress)
         unzip(tempZip, modelsRoot)
         tempZip.delete()
-        if (!isInstalled()) {
+        if (!isInstalled(spec)) {
             val candidates = modelsRoot.listFiles()?.filter { it.isDirectory }?.joinToString { it.name }.orEmpty()
-            throw IllegalStateException("Vosk-Modell wurde entpackt, aber ${BuildConfig.EXPECTED_MODEL_DIR} wurde nicht gefunden. Gefunden: $candidates")
+            throw IllegalStateException("Vosk-Modell wurde entpackt, aber ${spec.directoryName} wurde nicht gefunden. Gefunden: $candidates")
         }
-        expectedModelDir
+        targetDir
+    }
+
+    suspend fun delete(spec: VoskModelSpec): Unit = withContext(Dispatchers.IO) {
+        modelDir(spec).deleteRecursively()
+        File(context.cacheDir, "${spec.id}.zip").delete()
     }
 
     private fun download(url: String, target: File, onProgress: (Int) -> Unit) {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
-            readTimeout = 120_000
+            readTimeout = 180_000
             requestMethod = "GET"
         }
         connection.connect()
@@ -59,11 +73,11 @@ class VoskModelManager(private val context: Context) {
     }
 
     private fun unzip(zipFile: File, destination: File) {
+        val destCanonical = destination.canonicalFile
         ZipInputStream(zipFile.inputStream().buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 val outFile = File(destination, entry.name).canonicalFile
-                val destCanonical = destination.canonicalFile
                 if (!outFile.path.startsWith(destCanonical.path)) {
                     throw SecurityException("Zip-Eintrag verlässt Zielordner: ${entry.name}")
                 }

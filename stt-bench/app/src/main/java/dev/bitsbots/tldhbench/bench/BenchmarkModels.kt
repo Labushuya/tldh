@@ -2,6 +2,78 @@ package dev.bitsbots.tldhbench.bench
 
 import dev.bitsbots.tldhbench.audio.AudioMetadata
 
+enum class Signal { GREEN, YELLOW, RED }
+
+data class VoskModelSpec(
+    val id: String,
+    val displayName: String,
+    val directoryName: String,
+    val url: String,
+    val sizeLabel: String,
+    val speedSignal: Signal,
+    val accuracySignal: Signal,
+    val deviceSignal: Signal,
+    val tradeoff: String,
+    val notes: String
+)
+
+object VoskModelCatalog {
+    val models: List<VoskModelSpec> = listOf(
+        VoskModelSpec(
+            id = "small-de-0.15",
+            displayName = "Small DE 0.15",
+            directoryName = "vosk-model-small-de-0.15",
+            url = "https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip",
+            sizeLabel = "45 MB",
+            speedSignal = Signal.GREEN,
+            accuracySignal = Signal.YELLOW,
+            deviceSignal = Signal.GREEN,
+            tradeoff = "Fast Mode: sehr schnell, Qualität mittel.",
+            notes = "Bisher auf dem Magic V2 sehr schnell. Kandidat für lokale Sofort-Vorschau."
+        ),
+        VoskModelSpec(
+            id = "small-de-zamia-0.3",
+            displayName = "Small DE Zamia 0.3",
+            directoryName = "vosk-model-small-de-zamia-0.3",
+            url = "https://alphacephei.com/vosk/models/vosk-model-small-de-zamia-0.3.zip",
+            sizeLabel = "49 MB",
+            speedSignal = Signal.GREEN,
+            accuracySignal = Signal.RED,
+            deviceSignal = Signal.GREEN,
+            tradeoff = "Alternativer Small-Test: schnell, laut Vosk-Liste nicht empfohlen.",
+            notes = "Nur als Gegenprobe sinnvoll. Erwartung: nicht besser als Small DE 0.15."
+        ),
+        VoskModelSpec(
+            id = "de-0.21",
+            displayName = "Big DE 0.21",
+            directoryName = "vosk-model-de-0.21",
+            url = "https://alphacephei.com/vosk/models/vosk-model-de-0.21.zip",
+            sizeLabel = "1.9 GB",
+            speedSignal = Signal.RED,
+            accuracySignal = Signal.GREEN,
+            deviceSignal = Signal.YELLOW,
+            tradeoff = "Quality Mode: deutlich größer, potenziell genauer, Handy-Risiko.",
+            notes = "Eher Tower/LAN-Kandidat. Auf dem Handy nur bewusst testen, Speicher und Wartezeit beachten."
+        ),
+        VoskModelSpec(
+            id = "de-tuda-0.6-900k",
+            displayName = "Big DE TUDA 0.6",
+            directoryName = "vosk-model-de-tuda-0.6-900k",
+            url = "https://alphacephei.com/vosk/models/vosk-model-de-tuda-0.6-900k.zip",
+            sizeLabel = "4.4 GB",
+            speedSignal = Signal.RED,
+            accuracySignal = Signal.GREEN,
+            deviceSignal = Signal.RED,
+            tradeoff = "Max-Quality-Versuch: sehr groß, eher nicht Handy-geeignet.",
+            notes = "Nur als Extrem-/Tower-Vergleich gedacht. Download und Modellladen können sehr lange dauern."
+        )
+    )
+
+    val defaultModel: VoskModelSpec = models.first()
+
+    fun byId(id: String): VoskModelSpec = models.firstOrNull { it.id == id } ?: defaultModel
+}
+
 data class TranscriptWord(
     val word: String,
     val startSec: Double?,
@@ -35,6 +107,7 @@ data class BenchmarkVerdict(
 data class BenchmarkResult(
     val engine: String,
     val model: String,
+    val modelId: String,
     val language: String,
     val metadata: AudioMetadata,
     val timing: BenchmarkTiming,

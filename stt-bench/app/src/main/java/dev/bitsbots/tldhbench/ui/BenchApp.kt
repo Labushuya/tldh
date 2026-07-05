@@ -1,9 +1,9 @@
 package dev.bitsbots.tldhbench.ui
 
-import android.app.Activity
-import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -44,6 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.bitsbots.tldhbench.bench.BenchmarkResult
 import dev.bitsbots.tldhbench.bench.BenchmarkRunner
+import dev.bitsbots.tldhbench.bench.Signal
+import dev.bitsbots.tldhbench.bench.VoskModelCatalog
+import dev.bitsbots.tldhbench.bench.VoskModelSpec
 import dev.bitsbots.tldhbench.models.VoskModelManager
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.launch
@@ -57,6 +62,7 @@ private val Accent2 = Color(0xFFD83F8D)
 private val TextMain = Color(0xFFFBEAF4)
 private val TextMuted = Color(0xFFC9AFC0)
 private val Good = Color(0xFF34D399)
+private val Warn = Color(0xFFFBBF24)
 private val Bad = Color(0xFFFB7185)
 
 @Composable
@@ -64,11 +70,19 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val context = LocalContext.current
     val modelManager = remember { VoskModelManager(context) }
     val scope = rememberCoroutineScope()
-    var modelInstalled by remember { mutableStateOf(modelManager.isInstalled()) }
+    var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
+    var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
     var progress by remember { mutableIntStateOf(0) }
     var busyLabel by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<BenchmarkResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    fun resetBenchmark() {
+        result = null
+        error = null
+        busyLabel = null
+        progress = 0
+    }
 
     MaterialTheme {
         Box(
@@ -87,7 +101,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 Header()
                 CardBlock(title = "Benchmark-Ziel") {
                     Text(
-                        "Separate App. tl;dh bleibt unberührt. Diese App misst Deutsch-STT-Speed und Qualität mit echten WhatsApp-Audios.",
+                        "Mehrere Vosk-Modelle live herunterladen, wechseln und gegen dieselbe Audio testen. tl;dh bleibt unberührt.",
                         color = TextMuted,
                         lineHeight = 20.sp
                     )
@@ -95,33 +109,59 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     Text("Zielmarken: 15s→≤15s · 60s→≤30s · 180s→≤120s", color = TextMain, fontWeight = FontWeight.SemiBold)
                 }
 
-                CardBlock(title = "Engine: Vosk small German") {
-                    Text(
-                        if (modelInstalled) "Modell installiert: vosk-model-small-de-0.15" else "Modell fehlt: vosk-model-small-de-0.15 (~45 MB).",
-                        color = if (modelInstalled) Good else TextMuted
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Button(
-                        onClick = {
-                            scope.launch {
+                CardBlock(title = "Vosk Modelle") {
+                    Text("Ampel: Geschwindigkeit / Genauigkeit / Handy-Eignung", color = TextMuted, lineHeight = 20.sp)
+                    Spacer(Modifier.height(8.dp))
+                    VoskModelCatalog.models.forEach { spec ->
+                        ModelCard(
+                            spec = spec,
+                            selected = spec.id == selectedModel.id,
+                            installed = installedIds.contains(spec.id),
+                            busy = busyLabel != null,
+                            progress = progress,
+                            busyLabel = busyLabel,
+                            onSelect = {
+                                selectedModel = spec
+                                result = null
                                 error = null
-                                busyLabel = "Modell wird geladen…"
-                                progress = 0
-                                runCatching {
-                                    modelManager.downloadAndInstallSmallGerman { progress = it }
-                                }.onSuccess {
-                                    modelInstalled = true
-                                    busyLabel = null
-                                }.onFailure {
-                                    busyLabel = null
-                                    error = "Modell-Download/Installation fehlgeschlagen: ${it.message}"
+                            },
+                            onDownload = {
+                                scope.launch {
+                                    error = null
+                                    result = null
+                                    progress = 0
+                                    busyLabel = "Download ${spec.displayName}…"
+                                    runCatching {
+                                        modelManager.downloadAndInstall(spec) { progress = it }
+                                    }.onSuccess {
+                                        installedIds = modelManager.installedIds()
+                                        busyLabel = null
+                                    }.onFailure {
+                                        busyLabel = null
+                                        error = "Modell-Download/Installation fehlgeschlagen (${spec.displayName}): ${it.message}"
+                                    }
+                                }
+                            },
+                            onDelete = {
+                                scope.launch {
+                                    error = null
+                                    result = null
+                                    busyLabel = "Lösche ${spec.displayName}…"
+                                    runCatching { modelManager.delete(spec) }
+                                        .onSuccess {
+                                            installedIds = modelManager.installedIds()
+                                            busyLabel = null
+                                        }
+                                        .onFailure {
+                                            busyLabel = null
+                                            error = "Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
+                                        }
                                 }
                             }
-                        },
-                        enabled = busyLabel == null,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text(if (modelInstalled) "Modell neu installieren" else "Deutsch-Modell herunterladen") }
-                    if (busyLabel?.contains("Modell") == true) Text("$busyLabel $progress%", color = TextMuted)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    if (busyLabel?.startsWith("Download") == true) Text("$busyLabel $progress%", color = TextMuted)
                 }
 
                 CardBlock(title = "Geteilte Audio") {
@@ -131,27 +171,38 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         color = if (shared == null) TextMuted else Good
                     )
                     Spacer(Modifier.height(10.dp))
-                    Button(
-                        onClick = {
-                            val audio = sharedAudioState.value ?: return@Button
-                            scope.launch {
-                                error = null
-                                result = null
-                                busyLabel = "Benchmark läuft…"
-                                runCatching {
-                                    BenchmarkRunner(context).runVoskSmallDe(audio)
-                                }.onSuccess {
-                                    result = it
-                                    busyLabel = null
-                                }.onFailure {
-                                    busyLabel = null
-                                    error = "Benchmark fehlgeschlagen: ${it.message}"
+                    Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = {
+                                val audio = sharedAudioState.value ?: return@Button
+                                scope.launch {
+                                    error = null
+                                    result = null
+                                    busyLabel = "Benchmark läuft…"
+                                    runCatching {
+                                        BenchmarkRunner(context).runVosk(audio, selectedModel)
+                                    }.onSuccess {
+                                        result = it
+                                        busyLabel = null
+                                    }.onFailure {
+                                        busyLabel = null
+                                        error = "Benchmark fehlgeschlagen (${selectedModel.displayName}): ${it.message}"
+                                    }
                                 }
-                            }
-                        },
-                        enabled = sharedAudioState.value != null && modelInstalled && busyLabel == null,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("Vosk Deutsch benchmarken") }
+                            },
+                            enabled = sharedAudioState.value != null && installedIds.contains(selectedModel.id) && busyLabel == null,
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                        ) { Text("Benchmark starten") }
+                        OutlinedButton(onClick = { resetBenchmark() }, enabled = busyLabel == null) {
+                            Text("Reset")
+                        }
+                    }
+                    if (!installedIds.contains(selectedModel.id)) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
+                    }
                     if (busyLabel?.contains("Benchmark") == true) Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(color = Accent2)
                         Text(busyLabel ?: "", color = TextMuted)
@@ -159,7 +210,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 }
 
                 error?.let { ErrorCard(it) }
-                result?.let { ResultCard(it) }
+                result?.let { ResultCard(it, onReset = { resetBenchmark() }) }
             }
         }
     }
@@ -169,7 +220,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
 private fun Header() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("tl;dh STT Bench", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Deutsch. Geschwindigkeit. Qualität. Keine Änderungen an tl;dh.", color = TextMuted)
+        Text("Vosk-Modellvergleich: Speed vs. Deutsch-Qualität.", color = TextMuted)
     }
 }
 
@@ -188,6 +239,75 @@ private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit
 }
 
 @Composable
+private fun ModelCard(
+    spec: VoskModelSpec,
+    selected: Boolean,
+    installed: Boolean,
+    busy: Boolean,
+    progress: Int,
+    busyLabel: String?,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val borderColor = if (selected) Accent2 else Color.Transparent
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+            .clickable(enabled = !busy) { onSelect() }
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(spec.displayName, color = TextMain, fontWeight = FontWeight.Bold)
+                Text("${spec.sizeLabel} · ${if (installed) "installiert" else "nicht installiert"}", color = if (installed) Good else TextMuted)
+            }
+            Text(if (selected) "aktiv" else "wählen", color = if (selected) Accent2 else TextMuted, fontWeight = FontWeight.SemiBold)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            SignalChip("Speed", spec.speedSignal)
+            SignalChip("Genauigkeit", spec.accuracySignal)
+            SignalChip("Handy", spec.deviceSignal)
+        }
+        Text(spec.tradeoff, color = TextMain, lineHeight = 19.sp)
+        Text(spec.notes, color = TextMuted, lineHeight = 19.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onDownload,
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text(if (installed) "Neu laden" else "Download") }
+            if (installed) {
+                OutlinedButton(onClick = onDelete, enabled = !busy) { Text("Löschen") }
+            }
+        }
+        if (busyLabel?.contains(spec.displayName) == true) Text("$busyLabel $progress%", color = TextMuted)
+    }
+}
+
+@Composable
+private fun SignalChip(label: String, signal: Signal) {
+    val color = when (signal) {
+        Signal.GREEN -> Good
+        Signal.YELLOW -> Warn
+        Signal.RED -> Bad
+    }
+    Row(
+        modifier = Modifier
+            .background(Color(0xFF1A0A12), RoundedCornerShape(999.dp))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(9.dp).background(color, CircleShape))
+        Text(label, color = TextMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
 private fun ErrorCard(message: String) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF351018)), shape = RoundedCornerShape(18.dp)) {
         Text(message, color = Bad, modifier = Modifier.padding(14.dp))
@@ -195,7 +315,7 @@ private fun ErrorCard(message: String) {
 }
 
 @Composable
-private fun ResultCard(result: BenchmarkResult) {
+private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit) {
     var detailsExpanded by remember { mutableStateOf(false) }
     var transcriptExpanded by remember { mutableStateOf(true) }
     val passColor = when (result.verdict.passed) {
@@ -206,7 +326,13 @@ private fun ResultCard(result: BenchmarkResult) {
 
     Card(colors = CardDefaults.cardColors(containerColor = Surface2), shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Ergebnis", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Ergebnis", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(result.model, color = TextMuted)
+                }
+                OutlinedButton(onClick = onReset) { Text("Reset") }
+            }
             Text(result.verdict.message, color = passColor, fontWeight = FontWeight.SemiBold)
             Text("Gesamt: ${fmtMs(result.timing.totalMs)} · Audio: ${fmtMs(result.timing.audioDurationMs)} · RTF: ${result.timing.rtf?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}", color = TextMain)
             Text("Decode: ${fmtMs(result.timing.decodeMs)} · Modell: ${fmtMs(result.timing.modelLoadMs)} · STT: ${fmtMs(result.timing.sttMs)}", color = TextMuted)
