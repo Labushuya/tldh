@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4 - FLAC corpus and UI contrast fix
+
+### Fixed
+- Accept FLAC/WAV/MP3 as benchmark/reference formats so the built-in gold-standard FLAC corpus is not rejected by the MVP format gate.
+- Keep WhatsApp OGG/Opus as the primary product-target format while allowing clean reference corpus formats for WER/CER tests.
+- Apply an explicit dark Material color scheme to avoid unreadable default dark text on dark surfaces.
+- Set explicit OutlinedTextField colors for text, label, placeholder, cursor, border and container states.
+- Use explicit high-contrast button colors for primary benchmark actions.
+
 ## 0.2.3 - Built-in gold-standard starter corpus
 
 ### Added

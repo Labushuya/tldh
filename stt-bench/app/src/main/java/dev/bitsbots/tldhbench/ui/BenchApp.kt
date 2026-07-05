@@ -30,7 +30,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -74,6 +76,27 @@ private val TextMuted = Color(0xFFC9AFC0)
 private val Good = Color(0xFF34D399)
 private val Warn = Color(0xFFFBBF24)
 private val Bad = Color(0xFFFB7185)
+private val FieldBg = Color(0xFF0B0509)
+private val FieldBorder = Color(0xFF7A365A)
+private val DisabledBg = Color(0xFF2B1723)
+private val DisabledText = Color(0xFF8D7484)
+
+private val BenchColorScheme = darkColorScheme(
+    primary = Accent2,
+    onPrimary = TextMain,
+    secondary = Accent,
+    onSecondary = TextMain,
+    background = Bg,
+    onBackground = TextMain,
+    surface = Surface,
+    onSurface = TextMain,
+    surfaceVariant = Surface2,
+    onSurfaceVariant = TextMuted,
+    error = Bad,
+    onError = TextMain,
+    outline = FieldBorder
+)
+
 
 @Composable
 fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
@@ -101,7 +124,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         progress = 0
     }
 
-    MaterialTheme {
+    MaterialTheme(colorScheme = BenchColorScheme) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -339,7 +362,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                 }
                             },
                             enabled = sharedAudioState.value != null && installedIds.contains(selectedModel.id) && busyLabel == null,
-                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                            colors = benchButtonColors()
                         ) { Text("Benchmark starten") }
                         OutlinedButton(onClick = { resetBenchmark() }, enabled = busyLabel == null) {
                             Text("Reset")
@@ -361,6 +384,14 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         }
     }
 }
+
+@Composable
+private fun benchButtonColors() = ButtonDefaults.buttonColors(
+    containerColor = Accent,
+    contentColor = TextMain,
+    disabledContainerColor = DisabledBg,
+    disabledContentColor = DisabledText
+)
 
 @Composable
 private fun Header() {
@@ -420,7 +451,7 @@ private fun GoldstandardCorpusCard(
             Button(
                 onClick = onDownloadAll,
                 enabled = !busy && installedCount < samples.size,
-                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                colors = benchButtonColors()
             ) { Text("Starter-Set laden") }
             OutlinedButton(onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Liste einklappen" else "Liste anzeigen")
@@ -485,7 +516,7 @@ private fun ReferenceSampleCard(
             Button(
                 onClick = onDownload,
                 enabled = !busy,
-                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                colors = benchButtonColors()
             ) { Text(if (installed) "Neu laden" else "Download") }
             OutlinedButton(onClick = onSelect, enabled = installed && !busy) {
                 Text("Als Testaudio nutzen")
@@ -519,7 +550,25 @@ private fun ReferenceTextCard(
             minLines = 3,
             maxLines = 8,
             label = { Text("Korrektes Referenztranskript") },
-            placeholder = { Text("z. B. aus Common Voice TSV oder selbst geschriebenem WhatsApp-Goldstandard") }
+            placeholder = { Text("z. B. aus Common Voice TSV oder selbst geschriebenem WhatsApp-Goldstandard") },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TextMain,
+                unfocusedTextColor = TextMain,
+                disabledTextColor = DisabledText,
+                cursorColor = Accent2,
+                focusedContainerColor = FieldBg,
+                unfocusedContainerColor = FieldBg,
+                disabledContainerColor = DisabledBg,
+                focusedBorderColor = Accent2,
+                unfocusedBorderColor = FieldBorder,
+                disabledBorderColor = DisabledText,
+                focusedLabelColor = Accent2,
+                unfocusedLabelColor = TextMuted,
+                disabledLabelColor = DisabledText,
+                focusedPlaceholderColor = TextMuted,
+                unfocusedPlaceholderColor = TextMuted,
+                disabledPlaceholderColor = DisabledText
+            )
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -654,7 +703,7 @@ private fun ModelCard(
             Button(
                 onClick = onDownload,
                 enabled = !busy,
-                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                colors = benchButtonColors()
             ) { Text(if (installed) "Neu laden" else "Download") }
             if (installed) {
                 OutlinedButton(onClick = onDelete, enabled = !busy) { Text("Löschen") }

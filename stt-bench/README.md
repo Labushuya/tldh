@@ -2,9 +2,9 @@
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.2.3
+## Current release: 0.2.4
 
-Focus: Vosk multi-model testing with built-in gold-standard starter corpus and WER/CER reference comparison.
+Focus: Vosk multi-model testing with built-in gold-standard starter corpus, WER/CER reference comparison, FLAC reference-audio support, and fixed dark UI contrast.
 
 ## Features
 
@@ -13,7 +13,7 @@ Focus: Vosk multi-model testing with built-in gold-standard starter corpus and W
 - Vosk German model catalog with live download/delete/switching.
 - Model traffic lights for speed, expected accuracy, and phone suitability.
 - Benchmark timings: decode, model load, STT, total, RTF.
-- Built-in gold-standard starter corpus with 8 curated German reference audios from `rhasspy/dataset-voice-kerstin`.
+- Built-in gold-standard starter corpus with 8 curated German FLAC reference audios from `rhasspy/dataset-voice-kerstin`.
 - One-tap corpus download inside the app.
 - Selecting a sample automatically sets audio input and reference text.
 - Optional manual reference text / gold-standard field remains available.
@@ -21,6 +21,7 @@ Focus: Vosk multi-model testing with built-in gold-standard starter corpus and W
 - Expandable reference vs. recognized transcript view.
 - Last 5 benchmark runs stored locally inside the benchmark app.
 - Current run reset button; history reset remains separate.
+- Explicit dark theme/text-field colors so reference fields remain readable.
 
 ## Built-in gold-standard starter corpus
 

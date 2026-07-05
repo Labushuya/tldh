@@ -35,6 +35,9 @@ object AudioIngestPolicy {
                 if (metadata.durationMs >= SOFT_DURATION_LIMIT_MS) add("Audio überschreitet das empfohlene Soft-Limit von 10 Minuten. Long-Audio-Verarbeitung bleibt Opt-in.")
             }
             if (metadata.format == AudioFormat.OGG_UNKNOWN) add("OGG erkannt, aber Opus-Header noch nicht sicher bestätigt.")
+            if (metadata.format == AudioFormat.FLAC) add("FLAC-Referenzaudio erkannt. Das ist für Goldstandard-Benchmarks freigegeben, aber nicht der normale WhatsApp-Zielfall.")
+            if (metadata.format == AudioFormat.WAV_PCM) add("WAV-Referenzaudio erkannt. Das ist für Goldstandard-Benchmarks freigegeben, aber nicht der normale WhatsApp-Zielfall.")
+            if (metadata.format == AudioFormat.MP3) add("MP3-Referenzaudio erkannt. Das ist für Goldstandard-Benchmarks freigegeben, aber nicht der normale WhatsApp-Zielfall.")
         }
 
         return AudioValidation(
