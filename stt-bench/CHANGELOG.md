@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.2 - Reference text comparison / WER-CER
+
+### Added
+- Optional reference text / gold-standard field for each benchmark run.
+- Clipboard import button for reference transcripts.
+- Automatic WER and CER calculation after Vosk transcription.
+- Reference comparison summary in the result UI.
+- Expandable view showing reference text vs. recognized text.
+- Last-5 benchmark history now stores WER/CER and comparison summary when a reference text was used.
+- Reference comparison warnings for weak WER and missing reference words.
+
+### Changed
+- Release tag moves to `stt-bench-v0.2.2`.
+- Benchmark report can now evaluate speed and recognition accuracy in the same run.
+
 ## 0.2.1 - Vosk multi-model benchmark + last-5 history
 
 ### Added

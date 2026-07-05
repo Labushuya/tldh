@@ -27,7 +27,12 @@ data class BenchmarkHistoryItem(
     val passed: Boolean?,
     val transcriptPreview: String,
     val transcriptFull: String,
-    val warningsCount: Int
+    val warningsCount: Int,
+    val werPercent: Double?,
+    val cerPercent: Double?,
+    val comparisonLabel: String?,
+    val comparisonSummary: String?,
+    val referencePreview: String?
 )
 
 class BenchmarkHistoryStore(context: Context) {
@@ -78,6 +83,12 @@ private fun BenchmarkResult.toHistoryItem(): BenchmarkHistoryItem {
         .trim()
         .let { if (it.length > 260) it.take(260).trimEnd() + "…" else it }
 
+    val comparison = referenceComparison
+    val referencePreview = comparison?.referenceRaw
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        ?.let { if (it.length > 220) it.take(220).trimEnd() + "…" else it }
+
     return BenchmarkHistoryItem(
         timestampMs = System.currentTimeMillis(),
         engine = engine,
@@ -95,7 +106,12 @@ private fun BenchmarkResult.toHistoryItem(): BenchmarkHistoryItem {
         passed = verdict.passed,
         transcriptPreview = preview.ifBlank { "Kein Transkript erkannt." },
         transcriptFull = fullTranscript,
-        warningsCount = warnings.size
+        warningsCount = warnings.size,
+        werPercent = comparison?.werPercent,
+        cerPercent = comparison?.cerPercent,
+        comparisonLabel = comparison?.qualityLabel,
+        comparisonSummary = comparison?.summary,
+        referencePreview = referencePreview
     )
 }
 
@@ -117,6 +133,11 @@ private fun BenchmarkHistoryItem.toJson(): JSONObject = JSONObject()
     .put("transcriptPreview", transcriptPreview)
     .put("transcriptFull", transcriptFull)
     .put("warningsCount", warningsCount)
+    .put("werPercent", werPercent)
+    .put("cerPercent", cerPercent)
+    .put("comparisonLabel", comparisonLabel)
+    .put("comparisonSummary", comparisonSummary)
+    .put("referencePreview", referencePreview)
 
 private fun JSONObject.toHistoryItem(): BenchmarkHistoryItem = BenchmarkHistoryItem(
     timestampMs = optLong("timestampMs", 0L),
@@ -135,13 +156,18 @@ private fun JSONObject.toHistoryItem(): BenchmarkHistoryItem = BenchmarkHistoryI
     passed = optNullableBoolean("passed"),
     transcriptPreview = optString("transcriptPreview", ""),
     transcriptFull = optString("transcriptFull", optString("transcriptPreview", "")),
-    warningsCount = optInt("warningsCount", 0)
+    warningsCount = optInt("warningsCount", 0),
+    werPercent = optNullableDouble("werPercent"),
+    cerPercent = optNullableDouble("cerPercent"),
+    comparisonLabel = optNullableString("comparisonLabel"),
+    comparisonSummary = optNullableString("comparisonSummary"),
+    referencePreview = optNullableString("referencePreview")
 )
 
-private fun JSONObject.optNullableString(key: String): String? = if (isNull(key)) null else optString(key)
-private fun JSONObject.optNullableLong(key: String): Long? = if (isNull(key)) null else optLong(key)
-private fun JSONObject.optNullableDouble(key: String): Double? = if (isNull(key)) null else optDouble(key).takeUnless { it.isNaN() }
-private fun JSONObject.optNullableBoolean(key: String): Boolean? = if (isNull(key)) null else optBoolean(key)
+private fun JSONObject.optNullableString(key: String): String? = if (!has(key) || isNull(key)) null else optString(key)
+private fun JSONObject.optNullableLong(key: String): Long? = if (!has(key) || isNull(key)) null else optLong(key)
+private fun JSONObject.optNullableDouble(key: String): Double? = if (!has(key) || isNull(key)) null else optDouble(key).takeUnless { it.isNaN() }
+private fun JSONObject.optNullableBoolean(key: String): Boolean? = if (!has(key) || isNull(key)) null else optBoolean(key)
 
 private fun formatSeconds(sec: Double): String {
     val total = sec.toInt().coerceAtLeast(0)

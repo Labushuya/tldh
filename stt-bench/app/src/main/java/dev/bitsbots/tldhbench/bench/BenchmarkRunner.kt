@@ -14,7 +14,11 @@ import kotlin.system.measureTimeMillis
 class BenchmarkRunner(private val context: Context) {
     private val modelManager = VoskModelManager(context)
 
-    suspend fun runVosk(sharedAudio: SharedAudio, modelSpec: VoskModelSpec): BenchmarkResult = withContext(Dispatchers.Default) {
+    suspend fun runVosk(
+        sharedAudio: SharedAudio,
+        modelSpec: VoskModelSpec,
+        referenceText: String? = null
+    ): BenchmarkResult = withContext(Dispatchers.Default) {
         if (!modelManager.isInstalled(modelSpec)) {
             throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Modell herunterladen/installieren.")
         }
@@ -42,6 +46,16 @@ class BenchmarkRunner(private val context: Context) {
             if (modelSpec.deviceSignal == Signal.RED) "${modelSpec.displayName} ist laut Ampel eher kein Handy-Modell. Benchmark kann RAM/Download/Zeit stark belasten." else null,
             if (modelSpec.speedSignal == Signal.RED) "${modelSpec.displayName} priorisiert Qualität gegenüber Geschwindigkeit. RTF kritisch prüfen." else null
         )
+        val referenceComparison = ReferenceTextComparator.compare(referenceText, engineOutput.transcript)
+        val comparisonWarnings = listOfNotNull(
+            referenceComparison?.takeIf { it.werPercent > 40.0 }?.let {
+                "Referenzvergleich schwach: ${it.summary}. Dieses Modell sollte für produktive TL;DRs nicht ungeprüft verwendet werden."
+            },
+            referenceComparison?.takeIf { it.wordDeletions > 0 }?.let {
+                "Referenzvergleich: ${it.wordDeletions} Referenz-Wörter fehlen in der Erkennung. Fehlende Negationen/Zahlen besonders prüfen."
+            }
+        )
+
         BenchmarkResult(
             engine = "Vosk",
             model = modelSpec.displayName,
@@ -52,7 +66,8 @@ class BenchmarkRunner(private val context: Context) {
             transcript = engineOutput.transcript,
             segments = engineOutput.segments,
             verdict = BenchmarkTargets.verdict(metadata.durationMs, timing.totalMs),
-            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings
+            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + comparisonWarnings,
+            referenceComparison = referenceComparison
         )
     }
 }

@@ -1,5 +1,7 @@
 package dev.bitsbots.tldhbench.ui
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
@@ -83,6 +86,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var error by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf(historyStore.load()) }
     var historyExpanded by remember { mutableStateOf(false) }
+    var referenceText by remember { mutableStateOf("") }
 
     fun resetBenchmark() {
         result = null
@@ -125,6 +129,22 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         historyStore.clear()
                         history = emptyList()
                     }
+                )
+
+                ReferenceTextCard(
+                    referenceText = referenceText,
+                    onReferenceTextChange = { referenceText = it },
+                    onPasteFromClipboard = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = clipboard.primaryClip
+                        val text = clip?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)
+                            ?.coerceToText(context)
+                            ?.toString()
+                            .orEmpty()
+                        if (text.isNotBlank()) referenceText = text
+                    },
+                    onClear = { referenceText = "" }
                 )
 
                 CardBlock(title = "Vosk Modelle") {
@@ -200,7 +220,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     result = null
                                     busyLabel = "Benchmark läuft…"
                                     runCatching {
-                                        BenchmarkRunner(context).runVosk(audio, selectedModel)
+                                        BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
                                     }.onSuccess {
                                         result = it
                                         historyStore.add(it)
@@ -255,6 +275,42 @@ private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             content()
+        }
+    }
+}
+
+@Composable
+private fun ReferenceTextCard(
+    referenceText: String,
+    onReferenceTextChange: (String) -> Unit,
+    onPasteFromClipboard: () -> Unit,
+    onClear: () -> Unit
+) {
+    val wordCount = referenceText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
+    CardBlock(title = "Referenztext / Goldstandard") {
+        Text(
+            "Optional: korrekten Text zur Audio einfügen. Nach dem Benchmark berechnet die App WER und CER gegen das erkannte Vosk-Transkript.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = referenceText,
+            onValueChange = onReferenceTextChange,
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+            maxLines = 8,
+            label = { Text("Korrektes Referenztranskript") },
+            placeholder = { Text("z. B. aus Common Voice TSV oder selbst geschriebenem WhatsApp-Goldstandard") }
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (referenceText.isBlank()) "Kein Referenzvergleich aktiv." else "Referenzvergleich aktiv · Wörter: $wordCount",
+            color = if (referenceText.isBlank()) TextMuted else Good
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onPasteFromClipboard) { Text("Aus Zwischenablage") }
+            OutlinedButton(onClick = onClear, enabled = referenceText.isNotBlank()) { Text("Referenz leeren") }
         }
     }
 }
@@ -318,6 +374,10 @@ private fun HistoryItemCard(index: Int, item: BenchmarkHistoryItem) {
         Text("Decode: ${fmtMs(item.decodeMs)} · Modell: ${fmtMs(item.modelLoadMs)} · STT: ${fmtMs(item.sttMs)}", color = TextMuted, fontSize = 13.sp)
         Text("Datei: ${item.audioName ?: "unbekannt"}", color = TextMuted, fontSize = 13.sp)
         if (item.warningsCount > 0) Text("Hinweise: ${item.warningsCount}", color = Warn, fontSize = 13.sp)
+        if (item.werPercent != null && item.cerPercent != null) {
+            Text("Referenz: WER ${fmtPct(item.werPercent)} · CER ${fmtPct(item.cerPercent)} · ${item.comparisonLabel ?: "ohne Label"}", color = comparisonColor(item.werPercent), fontWeight = FontWeight.SemiBold)
+            item.comparisonSummary?.let { Text(it, color = TextMuted, fontSize = 13.sp) }
+        }
         Text(item.transcriptPreview, color = TextMuted, lineHeight = 19.sp)
         OutlinedButton(onClick = { transcriptExpanded = !transcriptExpanded }) {
             Text(if (transcriptExpanded) "Transkript ausblenden" else "Transkript anzeigen")
@@ -406,6 +466,42 @@ private fun SignalChip(label: String, signal: Signal) {
 }
 
 @Composable
+private fun ReferenceComparisonBlock(comparison: dev.bitsbots.tldhbench.bench.ReferenceComparison) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Referenzvergleich", color = TextMain, fontWeight = FontWeight.Bold)
+        Text(comparison.summary, color = comparisonColor(comparison.werPercent), fontWeight = FontWeight.SemiBold)
+        Text(
+            "Wörter Ref/Hyp: ${comparison.referenceWordCount}/${comparison.hypothesisWordCount} · Wortfehler: ${comparison.wordDistance} · Sub/Ins/Del: ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}",
+            color = TextMuted,
+            lineHeight = 19.sp
+        )
+        Text(
+            "Zeichenfehler: ${comparison.charDistance}/${comparison.referenceCharCount}",
+            color = TextMuted,
+            lineHeight = 19.sp
+        )
+        OutlinedButton(onClick = { expanded = !expanded }) {
+            Text(if (expanded) "Referenz einklappen" else "Referenz und Erkennung anzeigen")
+        }
+        AnimatedVisibility(expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Referenz", color = TextMain, fontWeight = FontWeight.SemiBold)
+                Text(comparison.referenceRaw, color = TextMuted, lineHeight = 19.sp)
+                Text("Erkannt", color = TextMain, fontWeight = FontWeight.SemiBold)
+                Text(comparison.hypothesisRaw.ifBlank { "Kein Transkript erkannt." }, color = TextMuted, lineHeight = 19.sp)
+            }
+        }
+    }
+}
+
+@Composable
 private fun ErrorCard(message: String) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF351018)), shape = RoundedCornerShape(18.dp)) {
         Text(message, color = Bad, modifier = Modifier.padding(14.dp))
@@ -434,6 +530,8 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit) {
             Text(result.verdict.message, color = passColor, fontWeight = FontWeight.SemiBold)
             Text("Gesamt: ${fmtMs(result.timing.totalMs)} · Audio: ${fmtMs(result.timing.audioDurationMs)} · RTF: ${result.timing.rtf?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}", color = TextMain)
             Text("Decode: ${fmtMs(result.timing.decodeMs)} · Modell: ${fmtMs(result.timing.modelLoadMs)} · STT: ${fmtMs(result.timing.sttMs)}", color = TextMuted)
+
+            result.referenceComparison?.let { ReferenceComparisonBlock(it) }
 
             if (result.warnings.isNotEmpty()) {
                 Column(Modifier.background(Color(0xFF2A111F), RoundedCornerShape(16.dp)).padding(12.dp)) {
@@ -481,6 +579,15 @@ private fun formatHistoryTime(timestampMs: Long): String {
 private fun fmtMs(ms: Long?): String {
     if (ms == null) return "n/a"
     return if (ms < 1000L) "${ms} ms" else String.format(Locale.GERMANY, "%.2f s", ms / 1000.0)
+}
+
+private fun fmtPct(value: Double): String = String.format(Locale.GERMANY, "%.1f%%", value)
+
+private fun comparisonColor(werPercent: Double): Color = when {
+    werPercent <= 15.0 -> Good
+    werPercent <= 25.0 -> Good
+    werPercent <= 40.0 -> Warn
+    else -> Bad
 }
 
 private fun ts(sec: Double?): String {

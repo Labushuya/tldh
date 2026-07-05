@@ -1,29 +1,28 @@
 # Benchmark Plan
 
-## Audio classes
+## v0.2.2 focus
 
-1. 5-20s short WhatsApp voice note
-2. ~60s ordinary note
-3. ~180s long note
-4. ~4-5min stress test
+Measure Vosk model speed and recognition quality on real German audio.
 
-## Acceptance gates
+## Test flow
 
-- 15s audio: total <= 15s
-- 60s audio: total <= 30s
-- 180s audio: total <= 120s
+1. Install/select Vosk model.
+2. Share audio into `tl;dh STT Bench`.
+3. Paste the correct reference transcript when available.
+4. Run benchmark.
+5. Review:
+   - total time
+   - RTF
+   - transcript with timestamps
+   - WER / CER
+   - reference vs recognized text
+6. Compare the last 5 benchmark runs in history.
 
-## Quality review
+## Interpretation
 
-Use the transcript foldout with timestamps. Check:
+- Speed passes when total time stays within the target class.
+- Recognition quality is considered usable only if WER/CER are low enough for TL;DR extraction and critical terms such as negations, times, dates, names and quantities are correctly recognized.
 
-- Did the recognizer preserve names, times, numbers?
-- Did it miss negations?
-- Are action requests recognizable?
-- Would a tl;dh summary based on this transcript be trustworthy?
+## Next candidates
 
-## Decision
-
-- Fast + acceptable German quality: candidate for tl;dh phone fast mode.
-- Fast + weak quality: preview-only or reject.
-- Slow: not suitable for phone-first path.
+If Vosk small remains too inaccurate, continue with preprocessing, context vocabulary, or larger Vosk models before testing other STT engines.

@@ -1,49 +1,35 @@
-<p align="center">
-  <img src="docs/brand/banner.png" alt="tl;dh STT Bench" width="100%">
-</p>
-
 # tl;dh STT Bench
 
-Separate Android-Benchmark-App für die STT-Engine-Entscheidung von **tl;dh**. Die Haupt-App bleibt unberührt.
+Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## v0.2.1 Fokus
+## Current release: 0.2.2
 
-Diese Version bleibt primär bei **Vosk**, erweitert den Test aber auf mehrere deutsche Modelle, die live ohne App-Neustart heruntergeladen, gewechselt und gegen dieselbe Audio gebenchmarkt werden können. Zusätzlich speichert die App lokal die letzten 5 Benchmark-Läufe, die bei Bedarf eingeblendet werden können.
+Focus: Vosk multi-model testing with optional reference transcript comparison.
 
-## Modelle
+## Features
 
-| Modell | Größe | Ampel-Idee | Zweck |
-|---|---:|---|---|
-| `vosk-model-small-de-0.15` | 45 MB | Speed grün / Genauigkeit gelb | Phone Fast Mode Kandidat |
-| `vosk-model-small-de-zamia-0.3` | 49 MB | Speed grün / Genauigkeit rot | Gegenprobe, nicht empfohlen |
-| `vosk-model-de-0.21` | 1.9 GB | Speed rot / Genauigkeit grün | Quality-/Tower-Vergleich |
-| `vosk-model-de-tuda-0.6-900k` | 4.4 GB | Speed rot / Genauigkeit grün | Extrem-/Tower-Vergleich |
+- Separate Android package: `dev.bitsbots.tldhbench`.
+- Share target for WhatsApp/Telegram audio.
+- Vosk German model catalog with live download/delete/switching.
+- Model traffic lights for speed, expected accuracy, and phone suitability.
+- Benchmark timings: decode, model load, STT, total, RTF.
+- Optional reference text / gold-standard field.
+- Automatic WER and CER calculation after each benchmark when a reference is provided.
+- Expandable reference vs. recognized transcript view.
+- Last 5 benchmark runs stored locally inside the benchmark app.
+- Current run reset button; history reset remains separate.
 
-Die Ampel ist bewusst eine Vorab-Einschätzung. Entscheidend sind Deine echten Benchmark-Werte.
+## Reference comparison
 
-## Flow
+Paste the correct transcript into the reference field before starting the benchmark. The app then calculates:
 
-```text
-WhatsApp Audio teilen
-→ tl;dh STT Bench auswählen
-→ Modell wählen/downloaden
-→ Benchmark starten
-→ Modell ohne Neustart wechseln
-→ erneut benchmarken
-→ Zeiten/RTF/Transkript vergleichen
-```
+- WER: word error rate.
+- CER: character error rate.
+- Word substitutions / insertions / deletions.
+- A rough label: very good, usable, critical, weak.
 
-## Letzte 5 Benchmarks
+This is intended for Common Voice, self-made WhatsApp gold-standard clips, or any audio where the correct transcript is known.
 
-Nach jedem erfolgreichen Benchmark speichert die App lokal eine kompakte Historie mit Modell, Audio-Dauer, Gesamtzeit, RTF, Verdict, Transkript-Vorschau und vollständigem erkanntem Transkript mit Zeitstempeln. Es werden maximal 5 Läufe behalten; ältere Einträge fallen automatisch heraus. Die Historie kann im UI angezeigt oder gelöscht werden.
+## Privacy
 
-## Reset
-
-Nach jedem Benchmark kann das Ergebnis per **Reset** sofort geleert werden, ohne die App neu zu starten. Die geteilte Audio und installierte Modelle bleiben erhalten, sodass mehrere Modelle bequem gegen dieselbe Audio verglichen werden können.
-
-## Datenschutz
-
-- Keine Cloud-STT.
-- Modell-Download nur auf Nutzerklick.
-- Geteilte Audio wird lokal verarbeitet.
-- Benchmark-App ist getrennt von tl;dh.
+No telemetry. No cloud STT. The reference text and last-5 history are stored locally in the benchmark app only.

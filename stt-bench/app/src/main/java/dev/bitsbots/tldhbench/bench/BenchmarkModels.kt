@@ -104,6 +104,23 @@ data class BenchmarkVerdict(
     val message: String
 )
 
+data class ReferenceComparison(
+    val referenceRaw: String,
+    val hypothesisRaw: String,
+    val referenceWordCount: Int,
+    val hypothesisWordCount: Int,
+    val wordDistance: Int,
+    val wordSubstitutions: Int,
+    val wordInsertions: Int,
+    val wordDeletions: Int,
+    val werPercent: Double,
+    val charDistance: Int,
+    val referenceCharCount: Int,
+    val cerPercent: Double,
+    val qualityLabel: String,
+    val summary: String
+)
+
 data class BenchmarkResult(
     val engine: String,
     val model: String,
@@ -114,7 +131,8 @@ data class BenchmarkResult(
     val transcript: String,
     val segments: List<TranscriptSegment>,
     val verdict: BenchmarkVerdict,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    val referenceComparison: ReferenceComparison? = null
 )
 
 object BenchmarkTargets {
