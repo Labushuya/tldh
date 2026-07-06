@@ -157,6 +157,7 @@ object BenchmarkTargets {
             durationMs <= 15_000L -> 15_000L
             durationMs <= 60_000L -> 30_000L
             durationMs <= 180_000L -> 120_000L
+            durationMs <= 380_000L -> durationMs
             else -> null
         }
     }
@@ -167,14 +168,20 @@ object BenchmarkTargets {
             return BenchmarkVerdict(
                 targetMs = null,
                 passed = null,
-                message = "Keine harte Zielmarke: Testaudio außerhalb der definierten 15s/60s/180s-Klassen."
+                message = "Keine harte Zielmarke: Testaudio ist länger als die aktuelle 6:20-Minuten-Bench-Klasse."
             )
         }
         val passed = totalMs <= target
+        val isLongForm = durationMs != null && durationMs > 180_000L
         return BenchmarkVerdict(
             targetMs = target,
             passed = passed,
-            message = if (passed) "Bestanden: Gesamtzeit innerhalb Zielmarke." else "Nicht bestanden: Gesamtzeit überschreitet Zielmarke."
+            message = when {
+                passed && isLongForm -> "Longform bestanden: Gesamtzeit ist schneller als Zuhören (RTF <= 1,0)."
+                !passed && isLongForm -> "Longform nicht bestanden: Gesamtzeit ist langsamer als Zuhören (RTF > 1,0)."
+                passed -> "Bestanden: Gesamtzeit innerhalb Zielmarke."
+                else -> "Nicht bestanden: Gesamtzeit überschreitet Zielmarke."
+            }
         )
     }
 }

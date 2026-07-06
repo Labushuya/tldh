@@ -6,8 +6,8 @@ object AudioIngestPolicy {
     const val MIN_NON_EMPTY_BYTES: Long = 1L
 
     const val WARN_DURATION_MS: Long = 3L * 60L * 1000L
-    const val SOFT_DURATION_LIMIT_MS: Long = 10L * 60L * 1000L
-    const val HARD_DURATION_LIMIT_MS: Long = 15L * 60L * 1000L
+    const val SOFT_DURATION_LIMIT_MS: Long = 6L * 60L * 1000L
+    const val HARD_DURATION_LIMIT_MS: Long = 380L * 1000L
 
     fun validate(metadata: AudioMetadata): AudioValidation {
         val reasons = buildList {
@@ -32,7 +32,7 @@ object AudioIngestPolicy {
                 add("Audiodauer konnte noch nicht sicher aus den Medienmetadaten gelesen werden.")
             } else {
                 if (metadata.durationMs >= WARN_DURATION_MS) add("Audio ist länger als 3 Minuten. Lokale Transkription kann später spürbar Akku und Zeit kosten.")
-                if (metadata.durationMs >= SOFT_DURATION_LIMIT_MS) add("Audio überschreitet das empfohlene Soft-Limit von 10 Minuten. Long-Audio-Verarbeitung bleibt Opt-in.")
+                if (metadata.durationMs >= SOFT_DURATION_LIMIT_MS) add("Audio überschreitet die empfohlene 6-Minuten-Bench-Klasse. Long-Audio-Verarbeitung bleibt bewusst begrenzt.")
             }
             if (metadata.format == AudioFormat.OGG_UNKNOWN) add("OGG erkannt, aber Opus-Header noch nicht sicher bestätigt.")
             if (metadata.format == AudioFormat.FLAC) add("FLAC-Referenzaudio erkannt. Das ist für Goldstandard-Benchmarks freigegeben, aber nicht der normale WhatsApp-Zielfall.")
@@ -65,7 +65,7 @@ data class AudioValidation(
 enum class AudioRejectReason(val userMessage: String) {
     EMPTY_FILE("Die geteilte Audiodatei ist leer."),
     FILE_TOO_LARGE("Die Audiodatei überschreitet das aktuelle MVP-Limit von 50 MB."),
-    AUDIO_TOO_LONG("Die Audiodatei überschreitet das aktuelle Hard-Limit von 15 Minuten."),
+    AUDIO_TOO_LONG("Die Audiodatei überschreitet das aktuelle STT-Bench-Hard-Limit von 6:20 Minuten (380 Sekunden)."),
     UNSUPPORTED_FORMAT("Das Audioformat wird im MVP noch nicht unterstützt."),
     EMPTY_HEADER_PROBE("Die Datei konnte nicht ausreichend gelesen werden, um das Format zu prüfen.")
 }

@@ -1,8 +1,8 @@
 # Benchmark Plan
 
-## v0.2.8 focus
+## v0.2.9 focus
 
-Measure Vosk model speed and recognition quality on real German audio with explicit active-audio source tracking, word-level deviation analysis, conservative non-speech reduction, generated 30s/90s/4min longform profiles, and repeatable batch reports.
+Measure Vosk model speed and recognition quality on real German audio with explicit active-audio source tracking, word-level deviation analysis, conservative non-speech reduction, generated 30s/90s/4min longform profiles, repeatable batch reports, and safer phone behavior for long/large model tests.
 
 ## Test flow
 
@@ -25,7 +25,7 @@ Measure Vosk model speed and recognition quality on real German audio with expli
 
 ## Interpretation
 
-- Speed passes when total time stays within the target class.
+- Speed passes when total time stays within the target class. For 180-380s longform clips, the target is faster-than-listening (`RTF <= 1.0`).
 - Recognition quality is considered usable only if WER/CER are low enough for TL;DR extraction and critical terms such as negations, times, dates, names and quantities are correctly recognized.
 
 ## Longform interpretation
@@ -49,3 +49,8 @@ If Vosk small remains too inaccurate, compare the new non-speech-reduction resul
 ## UX notes
 
 The app is split into sections instead of one long scroll stack. The active-audio card must always make clear whether the source is Android Share, Goldstandard or Longform. Buttons use full-width responsive action rows to avoid cramped labels on phone screens. After single or batch benchmark completion, the app routes to **Ergebnisse** so the user does not have to hunt for the output. The **Updates** section restores the manual in-app installer for benchmark releases.
+
+
+## Android crash guard
+
+`Big DE TUDA 0.6` is intentionally blocked for on-device Android execution in this benchmark build. The model is extremely large and can terminate the app at native Vosk model-load time before Kotlin error handling can show a clean failure. Treat it as a later Tower/LAN quality-mode candidate.

@@ -2,9 +2,9 @@
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.2.8
+## Current release: 0.2.9
 
-Focus: Vosk multi-model testing with clear active-audio source tracking, responsive UI, restored benchmark updater, expanded gold-standard/longform tests, WER/CER/S-I-D deviation analysis, conservative non-speech reduction, batch reports, and Markdown export.
+Focus: Vosk multi-model testing with safer phone UX, status/navigation-bar padding, clearer responsive buttons, 380-second longform target class, Zamia model extraction hardening, Android crash guard for oversized TUDA, WER/CER/S-I-D deviation analysis, conservative non-speech reduction, batch reports, and Markdown export.
 
 ## Features
 
@@ -23,7 +23,7 @@ Focus: Vosk multi-model testing with clear active-audio source tracking, respons
 - Current run reset button; history reset remains separate.
 - Explicit dark theme/text-field colors so reference fields remain readable.
 - Section-based UI: Start, Modelle, Goldstandard, Benchmark, Ergebnisse, Updates.
-- Responsive full-width action buttons so labels do not shift or collapse on phone screens, including the batch `20× Corpus` selector.
+- Responsive full-width action buttons with minimum height and centered labels so text does not shift or collapse on phone screens.
 - Generated longform WAV profiles: ~30 seconds, ~90 seconds, and ~4 minutes, each with an automatically built reference transcript.
 - Batch-benchmark all installed gold-standard samples with the active model.
 - Batch repeat profiles: 1×, 3×, 8×, 20× corpus repeats for aggregate model reports.
@@ -55,6 +55,13 @@ When an audio is shared from WhatsApp/Telegram into the benchmark app, the Bench
 ## Non-speech reduction
 
 Before Vosk receives PCM, the app now performs a conservative local preprocessing pass: 16 kHz mono conversion, basic silence trimming and long-pause compression. If material was removed, the result warning states roughly how many seconds/percent were removed. The timing target still uses the original input duration, because product usefulness is measured against the user's actual voice-message length.
+
+## Android safety fixes in 0.2.9
+
+- The top-level layout now respects Android status/camera and navigation areas, with extra bottom breathing room for gesture/soft-button devices.
+- The benchmark target class now covers audios up to 380 seconds. For 180-380 seconds, the hard target is faster-than-listening (`RTF <= 1.0`).
+- Zamia model installation now searches nested extracted model directories and normalizes them if the ZIP layout differs from the expected root.
+- The very large TUDA model remains downloadable for inspection, but Android benchmark execution is blocked by a crash guard because native Vosk loading can terminate the app before Kotlin can catch an exception.
 
 ## Privacy
 

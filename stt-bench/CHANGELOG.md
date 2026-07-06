@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.9 - Safe-area UI, Zamia install hardening, longform target class
+
+### Fixed
+- Add status-bar/camera cutout padding and additional bottom breathing room so the header and lower cards do not sit under phone system UI.
+- Give action buttons a minimum height and centered two-line labels to reduce shifted/wrapped button text on phone screens.
+- Harden Vosk model installation: after unzip, the app now searches nested extracted directories for a valid Vosk model layout and normalizes it into the expected folder. This addresses the Zamia case where the expected folder name appeared but validation still failed.
+- Add Android crash guard for `Big DE TUDA 0.6`: the model remains listed/downloadable, but benchmark execution is blocked on Android because native Vosk model loading can hard-crash the process.
+
+### Changed
+- Bench duration class now covers up to 380 seconds. Audios between 180 and 380 seconds are judged by `RTF <= 1.0`, i.e. faster than listening.
+- Release tag moves to `stt-bench-v0.2.9`.
+- Workflow and Gradle version defaults move to `0.2.9` / versionCode `209`.
+
 ## 0.2.8 - Audio source clarity, word deviations, non-speech reduction
 
 ### Added

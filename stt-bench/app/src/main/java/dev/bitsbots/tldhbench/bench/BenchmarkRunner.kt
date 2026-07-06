@@ -22,6 +22,9 @@ class BenchmarkRunner(private val context: Context) {
         if (!modelManager.isInstalled(modelSpec)) {
             throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Modell herunterladen/installieren.")
         }
+        if (modelSpec.deviceSignal == Signal.RED) {
+            throw IllegalStateException("${modelSpec.displayName} ist auf Android absichtlich blockiert: dieses Modell kann beim nativen Vosk-Laden die App hart beenden. Für diesen Extremtest bitte später Tower/LAN-Quality-Mode nutzen.")
+        }
         val started = System.currentTimeMillis()
         val metadata = AudioIngestor(context).inspect(sharedAudio)
         val workDir = File(context.cacheDir, "bench-work").apply { deleteRecursively(); mkdirs() }

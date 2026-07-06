@@ -15,10 +15,9 @@ import java.util.zip.ZipInputStream
 class VoskModelManager(private val context: Context) {
     private val modelsRoot: File get() = File(context.filesDir, "models")
 
-    fun modelDir(spec: VoskModelSpec): File = File(modelsRoot, spec.directoryName)
+    fun modelDir(spec: VoskModelSpec): File = locateUsableModelDir(spec) ?: File(modelsRoot, spec.directoryName)
 
-    fun isInstalled(spec: VoskModelSpec): Boolean =
-        modelDir(spec).isDirectory && File(modelDir(spec), "conf").exists()
+    fun isInstalled(spec: VoskModelSpec): Boolean = locateUsableModelDir(spec) != null
 
     fun installedIds(): Set<String> = VoskModelCatalog.models
         .filter { isInstalled(it) }
@@ -27,23 +26,86 @@ class VoskModelManager(private val context: Context) {
 
     suspend fun downloadAndInstall(spec: VoskModelSpec, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
         modelsRoot.mkdirs()
-        val targetDir = modelDir(spec)
+        val targetDir = File(modelsRoot, spec.directoryName)
         val tempZip = File(context.cacheDir, "${spec.id}.zip")
         targetDir.deleteRecursively()
         tempZip.delete()
         download(spec.url, tempZip, onProgress)
         unzip(tempZip, modelsRoot)
         tempZip.delete()
-        if (!isInstalled(spec)) {
-            val candidates = modelsRoot.listFiles()?.filter { it.isDirectory }?.joinToString { it.name }.orEmpty()
-            throw IllegalStateException("Vosk-Modell wurde entpackt, aber ${spec.directoryName} wurde nicht gefunden. Gefunden: $candidates")
+
+        normalizeExtractedModel(spec, targetDir)
+
+        val resolved = locateUsableModelDir(spec)
+        if (resolved == null) {
+            val diagnostics = modelDiagnostics(spec)
+            throw IllegalStateException(
+                "Vosk-Modell wurde entpackt, aber kein gültiges Vosk-Modellverzeichnis für ${spec.directoryName} gefunden. $diagnostics"
+            )
         }
-        targetDir
+        resolved
     }
 
     suspend fun delete(spec: VoskModelSpec): Unit = withContext(Dispatchers.IO) {
-        modelDir(spec).deleteRecursively()
+        File(modelsRoot, spec.directoryName).deleteRecursively()
         File(context.cacheDir, "${spec.id}.zip").delete()
+    }
+
+    private fun locateUsableModelDir(spec: VoskModelSpec): File? {
+        val target = File(modelsRoot, spec.directoryName)
+        if (isUsableVoskModelDir(target)) return target
+        if (!target.exists()) return null
+        return target
+            .walkTopDown()
+            .maxDepth(6)
+            .filter { it.isDirectory && isUsableVoskModelDir(it) }
+            .minByOrNull { it.absolutePath.length }
+    }
+
+    private fun normalizeExtractedModel(spec: VoskModelSpec, targetDir: File) {
+        val resolved = locateUsableModelDir(spec) ?: return
+        if (resolved.canonicalFile == targetDir.canonicalFile) return
+
+        val normalized = File(modelsRoot, "${spec.directoryName}.normalized")
+        normalized.deleteRecursively()
+        resolved.copyRecursively(normalized, overwrite = true)
+        targetDir.deleteRecursively()
+        if (!normalized.renameTo(targetDir)) {
+            normalized.copyRecursively(targetDir, overwrite = true)
+            normalized.deleteRecursively()
+        }
+    }
+
+    private fun isUsableVoskModelDir(dir: File): Boolean {
+        if (!dir.isDirectory) return false
+        val hasAm = File(dir, "am/final.mdl").isFile
+        val hasConf = File(dir, "conf/mfcc.conf").isFile || File(dir, "conf/model.conf").isFile
+        val hasGraph = File(dir, "graph/HCLG.fst").isFile ||
+            (File(dir, "graph/HCLr.fst").isFile && File(dir, "graph/Gr.fst").isFile)
+        return hasAm && hasConf && hasGraph
+    }
+
+    private fun modelDiagnostics(spec: VoskModelSpec): String {
+        val target = File(modelsRoot, spec.directoryName)
+        val candidates = modelsRoot.listFiles()
+            ?.filter { it.isDirectory }
+            ?.joinToString { root ->
+                val direct = listOf("am/final.mdl", "conf/mfcc.conf", "conf/model.conf", "graph/HCLG.fst")
+                    .filter { File(root, it).exists() }
+                    .joinToString(prefix = "[", postfix = "]")
+                "${root.name}$direct"
+            }
+            .orEmpty()
+        val nested = if (target.exists()) {
+            target.walkTopDown()
+                .maxDepth(3)
+                .filter { it.isDirectory }
+                .take(20)
+                .joinToString { it.relativeTo(target).path.ifBlank { "." } }
+        } else {
+            "Zielordner fehlt"
+        }
+        return "Gefundene Modellordner: $candidates. Unterordner in Zielstruktur: $nested"
     }
 
     private fun download(url: String, target: File, onProgress: (Int) -> Unit) {

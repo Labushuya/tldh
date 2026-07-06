@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -301,8 +303,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
-                    .padding(16.dp)
-                    .navigationBarsPadding(),
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Header()
@@ -524,6 +527,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         repositorySlug = BuildConfig.GITHUB_REPOSITORY
                     )
                 }
+                Spacer(Modifier.height(48.dp))
             }
         }
     }
@@ -820,9 +824,17 @@ private fun BenchmarkActionCard(
                 lineHeight = 18.sp
             )
         }
+        if (selectedModel.deviceSignal == Signal.RED) {
+            Text(
+                "Android-Crash-Guard aktiv: Dieses Modell ist als Handy-ungeeignet markiert und wird auf dem Gerät nicht gestartet. Nutze Big DE 0.21 oder später den Tower/LAN-Modus.",
+                color = Bad,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        }
         Spacer(Modifier.height(10.dp))
         ActionStack {
-            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = sharedAudio != null && selectedModelInstalled && !busy)
+            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = sharedAudio != null && selectedModelInstalled && selectedModel.deviceSignal != Signal.RED && !busy)
             SecondaryActionButton("Lauf zurücksetzen", onReset, enabled = !busy)
         }
         if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {
@@ -1009,7 +1021,8 @@ private fun BenchButtonText(label: String) {
         text = label,
         modifier = Modifier.fillMaxWidth(),
         textAlign = TextAlign.Center,
-        lineHeight = 16.sp,
+        fontSize = 14.sp,
+        lineHeight = 17.sp,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis
     )
@@ -1022,7 +1035,7 @@ private fun PrimaryActionButton(
     modifier: Modifier = Modifier.fillMaxWidth(),
     enabled: Boolean = true
 ) {
-    Button(onClick = onClick, modifier = modifier, enabled = enabled, colors = benchButtonColors()) {
+    Button(onClick = onClick, modifier = modifier.heightIn(min = 48.dp), enabled = enabled, colors = benchButtonColors()) {
         BenchButtonText(label)
     }
 }
@@ -1034,7 +1047,7 @@ private fun SecondaryActionButton(
     modifier: Modifier = Modifier.fillMaxWidth(),
     enabled: Boolean = true
 ) {
-    OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled) {
+    OutlinedButton(onClick = onClick, modifier = modifier.heightIn(min = 48.dp), enabled = enabled) {
         BenchButtonText(label)
     }
 }
@@ -1047,7 +1060,7 @@ private fun ActionStack(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun Header() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("tl;dh STT Bench", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("tl;dh STT Bench", color = TextMain, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Text("Vosk-Modellvergleich: Speed vs. Deutsch-Qualität.", color = TextMuted)
     }
 }
@@ -1242,6 +1255,7 @@ private fun BatchBenchmarkCard(
         Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Goldstandard-Audios bereit: $installedCount/$totalCount", color = if (installedCount > 0) Good else TextMuted)
         Text(if (selectedModelInstalled) "Modell installiert: ja" else "Modell installiert: nein", color = if (selectedModelInstalled) Good else Warn)
+        if (selectedModel.deviceSignal == Signal.RED) Text("Android-Crash-Guard: Dieses Modell wird auf dem Handy nicht gestartet.", color = Bad, fontSize = 13.sp, lineHeight = 18.sp)
         Text("Geplante Läufe: ${installedCount * batchRepeatCount} · Profil: ${batchRepeatCount}× Corpus", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("1×/3×/8×/20× bedeutet: kompletter geladener Goldstandard-Korpus wird so oft wiederholt. Das ist ein Batch-Langlauf, kein einzelnes zusammengeklebtes Audio.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
@@ -1256,7 +1270,7 @@ private fun BatchBenchmarkCard(
         }
         Text("Für realistische Einzel-Audios mit ca. 30 Sekunden, 90 Sekunden oder 4 Minuten nutze die Longform-Testaudios oben. Für echte WhatsApp-/Telegram-Dateien teile die Audio direkt an diese App.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
-            PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && selectedModelInstalled)
+            PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && selectedModelInstalled && selectedModel.deviceSignal != Signal.RED)
             SecondaryActionButton("Report kopieren", { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null)
             SecondaryActionButton("Leeren", onClearReport, enabled = !busy && batchReport != null)
         }
@@ -1468,6 +1482,7 @@ private fun ModelCard(
         }
         Text(spec.tradeoff, color = TextMain, lineHeight = 19.sp)
         Text(spec.notes, color = TextMuted, lineHeight = 19.sp)
+        if (spec.deviceSignal == Signal.RED) Text("Crash-Guard: Download erlaubt, Benchmark auf Android blockiert.", color = Bad, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
             PrimaryActionButton(if (installed) "Neu laden" else "Download", onDownload, enabled = !busy)
             if (installed) {
