@@ -23,7 +23,7 @@ env:
 jobs:
   verify_benchmark_app:
     name: Verify benchmark Android app
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: stt-bench
@@ -37,8 +37,29 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK command line tools
+        uses: android-actions/setup-android@v4
+        with:
+          # Do not install the legacy SDK "tools" package. The previous workflow
+          # used setup-android@v3 defaults and failed before Gradle with:
+          # "Android SDK Tools: Error on ZipFile unknown archive".
+          packages: ''
+
+      - name: Ensure Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version
+          yes | sdkmanager --licenses >/dev/null || true
+          for attempt in 1 2 3; do
+            if sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"; then
+              exit 0
+            fi
+            echo "sdkmanager install failed on attempt ${attempt}/3. Retrying after short delay..."
+            sleep $((attempt * 10))
+          done
+          echo "sdkmanager install failed after 3 attempts."
+          exit 1
 
       - name: Build debug benchmark APK and run tests
         run: bash scripts/gradle.sh -PGITHUB_REPOSITORY="${GITHUB_REPOSITORY}" lintDebug testDebugUnitTest assembleDebug
@@ -63,7 +84,7 @@ jobs:
     name: Publish benchmark APK release
     needs: verify_benchmark_app
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: stt-bench
@@ -77,8 +98,29 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK command line tools
+        uses: android-actions/setup-android@v4
+        with:
+          # Do not install the legacy SDK "tools" package. The previous workflow
+          # used setup-android@v3 defaults and failed before Gradle with:
+          # "Android SDK Tools: Error on ZipFile unknown archive".
+          packages: ''
+
+      - name: Ensure Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version
+          yes | sdkmanager --licenses >/dev/null || true
+          for attempt in 1 2 3; do
+            if sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"; then
+              exit 0
+            fi
+            echo "sdkmanager install failed on attempt ${attempt}/3. Retrying after short delay..."
+            sleep $((attempt * 10))
+          done
+          echo "sdkmanager install failed after 3 attempts."
+          exit 1
 
       - name: Check whether benchmark release already exists
         id: release_check
