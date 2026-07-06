@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.bitsbots.tldhbench.BuildConfig
@@ -61,6 +63,9 @@ import dev.bitsbots.tldhbench.bench.BenchmarkRunner
 import dev.bitsbots.tldhbench.bench.Signal
 import dev.bitsbots.tldhbench.bench.VoskModelCatalog
 import dev.bitsbots.tldhbench.bench.VoskModelSpec
+import dev.bitsbots.tldhbench.audio.LongFormAudioComposer
+import dev.bitsbots.tldhbench.audio.LongFormProfile
+import dev.bitsbots.tldhbench.audio.LongFormProfiles
 import dev.bitsbots.tldhbench.corpus.BuiltInReferenceCorpus
 import dev.bitsbots.tldhbench.corpus.ReferenceCorpusManager
 import dev.bitsbots.tldhbench.corpus.ReferenceSample
@@ -124,6 +129,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
     var installedSampleIds by remember { mutableStateOf(corpusManager.installedIds()) }
     var selectedSample by remember { mutableStateOf<ReferenceSample?>(null) }
+    var selectedLongFormLabel by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableIntStateOf(0) }
     var busyLabel by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<BenchmarkResult?>(null) }
@@ -146,12 +152,45 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         runCatching {
             sharedAudioState.value = corpusManager.sharedAudio(sample)
             selectedSample = sample
+            selectedLongFormLabel = null
             referenceText = sample.referenceText
             resetBenchmark()
             selectedSection = BenchSection.Run
         }.onFailure {
             error = "Testaudio konnte nicht ausgewählt werden (${sample.id}): ${it.message}"
             selectedSection = BenchSection.Results
+        }
+    }
+
+    fun composeLongForm(profile: LongFormProfile) {
+        if (!installedIds.contains(selectedModel.id)) {
+            error = "Longform-Test nicht möglich: Installiere zuerst das aktive Modell ${selectedModel.displayName}."
+            selectedSection = BenchSection.Results
+            return
+        }
+        scope.launch {
+            error = null
+            result = null
+            progress = 0
+            busyLabel = "Erzeuge ${profile.title}-Longform-Audio…"
+            selectedSection = BenchSection.Run
+            runCatching {
+                LongFormAudioComposer(context, corpusManager).compose(
+                    profile = profile,
+                    samples = BuiltInReferenceCorpus.longFormSamples
+                )
+            }.onSuccess { composed ->
+                sharedAudioState.value = composed.sharedAudio
+                selectedSample = null
+                selectedLongFormLabel = composed.displayName
+                referenceText = composed.referenceText
+                busyLabel = null
+                progress = 100
+            }.onFailure {
+                busyLabel = null
+                error = "Longform-Testaudio konnte nicht erzeugt werden (${profile.title}): ${it.message}"
+                selectedSection = BenchSection.Results
+            }
         }
     }
 
@@ -227,7 +266,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     }
 
     LaunchedEffect(selectedSection) {
-        scrollState.animateScrollTo(0)
+        scrollState.scrollTo(0)
     }
 
     MaterialTheme(colorScheme = BenchColorScheme) {
@@ -249,6 +288,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     selectedModel = selectedModel,
                     modelInstalled = installedIds.contains(selectedModel.id),
                     selectedSample = selectedSample,
+                    selectedLongFormLabel = selectedLongFormLabel,
                     sharedAudio = sharedAudioState.value,
                     referenceText = referenceText,
                     installedSampleCount = installedSampleIds.size,
@@ -371,6 +411,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                         installedSampleIds = corpusManager.installedIds()
                                         if (selectedSample?.id == sample.id) {
                                             selectedSample = null
+                                            selectedLongFormLabel = null
                                             sharedAudioState.value = null
                                         }
                                         busyLabel = null
@@ -391,6 +432,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     .onSuccess {
                                         installedSampleIds = corpusManager.installedIds()
                                         selectedSample = null
+                                        selectedLongFormLabel = null
                                         sharedAudioState.value = null
                                         busyLabel = null
                                     }
@@ -408,6 +450,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         selectedModel = selectedModel,
                         selectedModelInstalled = installedIds.contains(selectedModel.id),
                         selectedSample = selectedSample,
+                        selectedLongFormLabel = selectedLongFormLabel,
                         referenceText = referenceText,
                         installedSampleCount = installedSampleIds.size,
                         totalSampleCount = BuiltInReferenceCorpus.samples.size,
@@ -427,6 +470,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                             if (text.isNotBlank()) referenceText = text
                         },
                         onClearReference = { referenceText = "" },
+                        onComposeLongForm = { profile -> composeLongForm(profile) },
                         onRunSingle = { runSingleBenchmark() },
                         onReset = { resetBenchmark(clearBatch = false) },
                         onBatchRepeatChange = { batchRepeatCount = it },
@@ -486,24 +530,25 @@ private sealed interface BenchUpdateUiState {
 private fun SectionNav(selected: BenchSection, onSelect: (BenchSection) -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            BenchSection.entries.chunked(3).forEach { rowItems ->
+            BenchSection.entries.chunked(2).forEach { rowItems ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     rowItems.forEach { section ->
                         val active = section == selected
                         if (active) {
-                            Button(
-                                onClick = { onSelect(section) },
-                                modifier = Modifier.weight(1f),
-                                colors = benchButtonColors()
-                            ) { Text(section.label, fontSize = 12.sp) }
-                        } else {
-                            OutlinedButton(
+                            PrimaryActionButton(
+                                label = section.label,
                                 onClick = { onSelect(section) },
                                 modifier = Modifier.weight(1f)
-                            ) { Text(section.label, fontSize = 12.sp) }
+                            )
+                        } else {
+                            SecondaryActionButton(
+                                label = section.label,
+                                onClick = { onSelect(section) },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
-                    repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                    repeat(2 - rowItems.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -515,6 +560,7 @@ private fun ActiveSetupCard(
     selectedModel: VoskModelSpec,
     modelInstalled: Boolean,
     selectedSample: ReferenceSample?,
+    selectedLongFormLabel: String?,
     sharedAudio: SharedAudio?,
     referenceText: String,
     installedSampleCount: Int,
@@ -528,7 +574,7 @@ private fun ActiveSetupCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Aktueller Prüfstand", color = TextMain, fontWeight = FontWeight.Bold)
                     Text("Modell: ${selectedModel.displayName}", color = if (modelInstalled) Good else Warn, lineHeight = 18.sp)
-                    Text("Audio: ${selectedSample?.id ?: sharedAudio?.mimeType ?: "noch keine Quelle"}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
+                    Text("Audio: ${selectedLongFormLabel ?: selectedSample?.id ?: sharedAudio?.mimeType ?: "noch keine Quelle"}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
                 }
                 Text("$installedSampleCount/$totalSampleCount", color = if (installedSampleCount > 0) Good else TextMuted, fontWeight = FontWeight.Bold)
             }
@@ -561,13 +607,11 @@ private fun StartSection(
         StepText("3", "Benchmark starten", "Einzeltest oder Batch laufen lassen; Ergebnis öffnet danach im Ergebnisbereich.")
         StepText("4", "Report kopieren", "Markdown-Report für Vergleich und nächste Modellentscheidung.")
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(onClick = onGoModels, modifier = Modifier.weight(1f), colors = benchButtonColors()) { Text("Modelle") }
-            Button(onClick = onGoCorpus, modifier = Modifier.weight(1f), colors = benchButtonColors()) { Text("Goldstandard") }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = onGoRun, modifier = Modifier.weight(1f)) { Text("Benchmark") }
-            OutlinedButton(onClick = onGoUpdates, modifier = Modifier.weight(1f)) { Text("Updates") }
+        ActionStack {
+            PrimaryActionButton("Modelle", onGoModels)
+            PrimaryActionButton("Goldstandard", onGoCorpus)
+            SecondaryActionButton("Benchmark", onGoRun)
+            SecondaryActionButton("Updates", onGoUpdates)
         }
     }
     CardBlock(title = "Was wurde am UI geändert?") {
@@ -648,8 +692,8 @@ private fun CorpusSection(
         onDelete = onDelete,
         onClear = onClear
     )
-    CardBlock(title = "Längere Goldstandard-Läufe") {
-        Text("Der Starter-Korpus besteht bewusst aus kurzen CC0-Referenzsätzen. Für längere Modellvergleiche nutzt der Batch-Benchmark jetzt Wiederholprofile: 1×, 3×, 8× oder 20× alle installierten Samples. Das ist kein Ersatz für ein echtes langes WhatsApp-Audio, aber deutlich besser für reproduzierbare RTF-/WER-Modellvergleiche.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "Longform-Nutzung") {
+        Text("Der Korpus enthält jetzt deutlich mehr saubere Referenzsätze. Im Benchmark-Bereich kannst Du daraus echte einzelne WAV-Testaudios mit ca. 30 Sekunden, 90 Sekunden oder 4 Minuten erzeugen. Der Referenztext wird automatisch aus denselben Sätzen zusammengesetzt.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -659,6 +703,7 @@ private fun RunSection(
     selectedModel: VoskModelSpec,
     selectedModelInstalled: Boolean,
     selectedSample: ReferenceSample?,
+    selectedLongFormLabel: String?,
     referenceText: String,
     installedSampleCount: Int,
     totalSampleCount: Int,
@@ -670,6 +715,7 @@ private fun RunSection(
     onReferenceTextChange: (String) -> Unit,
     onPasteReference: () -> Unit,
     onClearReference: () -> Unit,
+    onComposeLongForm: (LongFormProfile) -> Unit,
     onRunSingle: () -> Unit,
     onReset: () -> Unit,
     onBatchRepeatChange: (Int) -> Unit,
@@ -682,10 +728,18 @@ private fun RunSection(
         selectedModel = selectedModel,
         selectedModelInstalled = selectedModelInstalled,
         selectedSample = selectedSample,
+        selectedLongFormLabel = selectedLongFormLabel,
         busy = busy,
         busyLabel = busyLabel,
         onRunSingle = onRunSingle,
         onReset = onReset
+    )
+    LongFormScenarioCard(
+        installedCount = installedSampleCount,
+        totalCount = totalSampleCount,
+        selectedModelInstalled = selectedModelInstalled,
+        busy = busy,
+        onCompose = onComposeLongForm
     )
     ReferenceTextCard(
         referenceText = referenceText,
@@ -716,6 +770,7 @@ private fun BenchmarkActionCard(
     selectedModel: VoskModelSpec,
     selectedModelInstalled: Boolean,
     selectedSample: ReferenceSample?,
+    selectedLongFormLabel: String?,
     busy: Boolean,
     busyLabel: String?,
     onRunSingle: () -> Unit,
@@ -729,15 +784,12 @@ private fun BenchmarkActionCard(
         Spacer(Modifier.height(8.dp))
         Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
         selectedSample?.let { Text("Goldstandard: ${it.id} · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold) }
+        selectedLongFormLabel?.let { Text("Longform: $it · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold) }
         if (!selectedModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = onRunSingle,
-                enabled = sharedAudio != null && selectedModelInstalled && !busy,
-                colors = benchButtonColors()
-            ) { Text("Benchmark starten") }
-            OutlinedButton(onClick = onReset, enabled = !busy) { Text("Reset") }
+        ActionStack {
+            PrimaryActionButton("Benchmark starten", onRunSingle, enabled = sharedAudio != null && selectedModelInstalled && !busy)
+            SecondaryActionButton("Reset", onReset, enabled = !busy)
         }
         if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -767,7 +819,7 @@ private fun ResultsSection(
         CardBlock(title = "Noch kein Ergebnis") {
             Text("Starte einen Einzel- oder Batchbenchmark. Danach landet die App automatisch hier oben im Ergebnisbereich.", color = TextMuted, lineHeight = 20.sp)
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onGoRun, colors = benchButtonColors()) { Text("Zum Benchmark") }
+            PrimaryActionButton("Zum Benchmark", onGoRun)
         }
     }
     error?.let { ErrorCard(it) }
@@ -777,9 +829,9 @@ private fun ResultsSection(
     batchReport?.let { report ->
         CardBlock(title = "Batch-Report") {
             BatchReportBlock(report)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { onCopyBatch(report) }) { Text("Report kopieren") }
-                OutlinedButton(onClick = onClearBatch) { Text("Report leeren") }
+            ActionStack {
+                SecondaryActionButton("Report kopieren", { onCopyBatch(report) })
+                SecondaryActionButton("Report leeren", onClearBatch)
             }
         }
     }
@@ -809,7 +861,8 @@ private fun ManualBenchmarkUpdaterCard(appVersion: String, repositorySlug: Strin
         Spacer(Modifier.height(10.dp))
         when (val current = updateState) {
             BenchUpdateUiState.Idle -> {
-                Button(
+                PrimaryActionButton(
+                    label = "Nach Bench-Update suchen",
                     enabled = repositoryConfigured,
                     onClick = {
                         scope.launch {
@@ -820,9 +873,8 @@ private fun ManualBenchmarkUpdaterCard(appVersion: String, repositorySlug: Strin
                                 if (update == null) BenchUpdateUiState.UpToDate else BenchUpdateUiState.Available(update)
                             }.getOrElse { BenchUpdateUiState.Error(it.message ?: "Update-Prüfung fehlgeschlagen.") }
                         }
-                    },
-                    colors = benchButtonColors()
-                ) { Text("Nach Bench-Update suchen") }
+                    }
+                )
                 if (!repositoryConfigured) Text("GitHub Repository wurde im Build nicht gesetzt. Release-Builds aus GitHub Actions konfigurieren das automatisch.", color = Bad, lineHeight = 20.sp)
             }
             BenchUpdateUiState.Checking -> {
@@ -831,15 +883,15 @@ private fun ManualBenchmarkUpdaterCard(appVersion: String, repositorySlug: Strin
             }
             BenchUpdateUiState.UpToDate -> {
                 Text("Du nutzt bereits den aktuellsten Benchmark-Release.", color = Good)
-                OutlinedButton(onClick = { updateState = BenchUpdateUiState.Idle }) { Text("Erneut prüfen") }
+                SecondaryActionButton("Erneut prüfen", { updateState = BenchUpdateUiState.Idle })
             }
             is BenchUpdateUiState.Available -> {
                 Text("Benchmark-Update verfügbar: v${current.update.version}", color = Good, fontWeight = FontWeight.Bold)
                 Text(current.update.apk.name, color = TextMuted)
                 current.update.apk.sizeBytes?.let { Text("Größe: ${formatBytes(it)}", color = TextMuted) }
                 Text("Während des Downloads bleibt die App wach. Nach SHA256-Prüfung wird der Android-Installer geöffnet.", color = TextMuted, lineHeight = 20.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = {
+                ActionStack {
+                    PrimaryActionButton("Download", {
                         scope.launch {
                             updateState = BenchUpdateUiState.Downloading(current.update, 0f)
                             updateState = runCatching {
@@ -853,8 +905,8 @@ private fun ManualBenchmarkUpdaterCard(appVersion: String, repositorySlug: Strin
                                 BenchUpdateUiState.ReadyToInstall(current.update, file)
                             }.getOrElse { BenchUpdateUiState.Error(it.message ?: "Download fehlgeschlagen.") }
                         }
-                    }, colors = benchButtonColors()) { Text("Download") }
-                    OutlinedButton(onClick = { updateState = BenchUpdateUiState.Idle }) { Text("Abbrechen") }
+                    })
+                    SecondaryActionButton("Abbrechen", { updateState = BenchUpdateUiState.Idle })
                 }
             }
             is BenchUpdateUiState.Downloading -> {
@@ -865,12 +917,12 @@ private fun ManualBenchmarkUpdaterCard(appVersion: String, repositorySlug: Strin
             is BenchUpdateUiState.ReadyToInstall -> {
                 Text("Download verifiziert. SHA256 korrekt.", color = Good, fontWeight = FontWeight.Bold)
                 Text(current.update.apk.name, color = TextMuted)
-                Button(onClick = { context.startActivity(ApkInstaller(context).createInstallIntent(current.apkFile)) }, colors = benchButtonColors()) { Text("Installieren") }
+                PrimaryActionButton("Installieren", { context.startActivity(ApkInstaller(context).createInstallIntent(current.apkFile)) })
             }
             is BenchUpdateUiState.Error -> {
                 Text("Update-Prüfung fehlgeschlagen", color = Bad, fontWeight = FontWeight.Bold)
                 Text(current.message, color = TextMuted, lineHeight = 20.sp)
-                OutlinedButton(onClick = { updateState = BenchUpdateUiState.Idle }) { Text("Zurück") }
+                SecondaryActionButton("Zurück", { updateState = BenchUpdateUiState.Idle })
             }
         }
     }
@@ -885,6 +937,47 @@ private fun benchButtonColors() = ButtonDefaults.buttonColors(
     disabledContainerColor = DisabledBg,
     disabledContentColor = DisabledText
 )
+
+@Composable
+private fun BenchButtonText(label: String) {
+    Text(
+        text = label,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+        lineHeight = 16.sp,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
+private fun PrimaryActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    enabled: Boolean = true
+) {
+    Button(onClick = onClick, modifier = modifier, enabled = enabled, colors = benchButtonColors()) {
+        BenchButtonText(label)
+    }
+}
+
+@Composable
+private fun SecondaryActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    enabled: Boolean = true
+) {
+    OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled) {
+        BenchButtonText(label)
+    }
+}
+
+@Composable
+private fun ActionStack(content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+}
 
 @Composable
 private fun Header() {
@@ -923,16 +1016,16 @@ private fun GoldstandardCorpusCard(
     onClear: () -> Unit
 ) {
     val installedCount = samples.count { installedIds.contains(it.id) }
-    var expanded by remember { mutableStateOf(installedCount < samples.size) }
+    var expanded by remember { mutableStateOf(false) }
     CardBlock(title = "Goldstandard-Testaudios") {
         Text(
-            "Optionaler Starter-Korpus: saubere deutsche Referenz-Audios inklusive korrektem Text. Damit musst Du für Baseline-WER/CER nicht selbst erst Audios und Transkripte zusammensuchen.",
+            "Saubere deutsche Referenz-Audios inklusive korrektem Text. Die App vergleicht nach dem Benchmark den erkannten Vosk-Text gegen diese Referenz und berechnet WER/CER.",
             color = TextMuted,
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Quelle: rhasspy/dataset-voice-kerstin · CC0-1.0 · ${samples.size} kuratierte Kurz-/Mittelsätze",
+            "Quelle: rhasspy/dataset-voice-kerstin · CC0-1.0 · ${samples.size} kuratierte Sätze für Starter- und Longform-Profile",
             color = TextMain,
             fontWeight = FontWeight.SemiBold
         )
@@ -940,18 +1033,10 @@ private fun GoldstandardCorpusCard(
             Text("Aktiv: ${it.id} · ${it.title}", color = Good, fontWeight = FontWeight.SemiBold)
         }
         Text("Installiert: $installedCount/${samples.size}", color = if (installedCount > 0) Good else TextMuted)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = onDownloadAll,
-                enabled = !busy && installedCount < samples.size,
-                colors = benchButtonColors()
-            ) { Text("Starter-Set laden") }
-            OutlinedButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Liste einklappen" else "Liste anzeigen")
-            }
-            OutlinedButton(onClick = onClear, enabled = !busy && installedCount > 0) {
-                Text("Corpus löschen")
-            }
+        ActionStack {
+            PrimaryActionButton("Goldstandard laden", onDownloadAll, enabled = !busy && installedCount < samples.size)
+            SecondaryActionButton(if (expanded) "Liste einklappen" else "Liste anzeigen", { expanded = !expanded })
+            SecondaryActionButton("Corpus löschen", onClear, enabled = !busy && installedCount > 0)
         }
         if (busyLabel?.contains("rhasspy") == true || busyLabel?.contains("Goldstandard") == true || busyLabel?.startsWith("Lade de_rhasspy") == true) {
             Text("$busyLabel $progress%", color = TextMuted)
@@ -1005,17 +1090,51 @@ private fun ReferenceSampleCard(
         }
         Text(sample.referenceText, color = TextMain, lineHeight = 19.sp)
         Text(sample.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = onDownload,
-                enabled = !busy,
-                colors = benchButtonColors()
-            ) { Text(if (installed) "Neu laden" else "Download") }
-            OutlinedButton(onClick = onSelect, enabled = installed && !busy) {
-                Text("Als Testaudio nutzen")
-            }
+        ActionStack {
+            PrimaryActionButton(if (installed) "Neu laden" else "Download", onDownload, enabled = !busy)
+            SecondaryActionButton("Als Testaudio nutzen", onSelect, enabled = installed && !busy)
             if (installed) {
-                OutlinedButton(onClick = onDelete, enabled = !busy) { Text("Löschen") }
+                SecondaryActionButton("Löschen", onDelete, enabled = !busy)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LongFormScenarioCard(
+    installedCount: Int,
+    totalCount: Int,
+    selectedModelInstalled: Boolean,
+    busy: Boolean,
+    onCompose: (LongFormProfile) -> Unit
+) {
+    CardBlock(title = "Realistische Longform-Testaudios") {
+        Text(
+            "Erzeugt aus mehreren echten CC0-Referenzaufnahmen ein einzelnes WAV-Testaudio mit automatisch zusammengesetztem Referenztranskript. Danach läuft der normale Einzelbenchmark gegen genau dieses erkannte Vosk-Transkript.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Goldstandard-Audios bereit: $installedCount/$totalCount", color = if (installedCount > 0) Good else TextMuted)
+        Text(
+            if (selectedModelInstalled) "Aktives Modell installiert: ja" else "Aktives Modell installiert: nein",
+            color = if (selectedModelInstalled) Good else Warn
+        )
+        Text(
+            "Profile: 30 Sekunden, 90 Sekunden und 4 Minuten. Für 4 Minuten werden bei Bedarf unterschiedliche Sätze zyklisch genutzt; der Report bleibt trotzdem WER/CER-fähig.",
+            color = TextMuted,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        ActionStack {
+            LongFormProfiles.profiles.forEach { profile ->
+                PrimaryActionButton(
+                    label = "${profile.title} erzeugen",
+                    onClick = { onCompose(profile) },
+                    enabled = !busy && installedCount > 0 && selectedModelInstalled
+                )
+                Text(profile.description, color = TextMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
         }
     }
@@ -1058,14 +1177,10 @@ private fun BatchBenchmarkCard(
             }
         }
         Text("Hinweis: Das ist ein reproduzierbarer Langlauf über mehrere Referenzdateien, kein künstlich zusammengeklebtes WhatsApp-Audio. Für echte Long-Form-Audios weiter eigene Dateien teilen.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = onRunBatch,
-                enabled = !busy && installedCount > 0 && selectedModelInstalled,
-                colors = benchButtonColors()
-            ) { Text("Batch starten") }
-            OutlinedButton(onClick = { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null) { Text("Report kopieren") }
-            OutlinedButton(onClick = onClearReport, enabled = !busy && batchReport != null) { Text("Leeren") }
+        ActionStack {
+            PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && selectedModelInstalled)
+            SecondaryActionButton("Report kopieren", { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null)
+            SecondaryActionButton("Leeren", onClearReport, enabled = !busy && batchReport != null)
         }
         if (busyLabel?.startsWith("Batch") == true) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1155,9 +1270,9 @@ private fun ReferenceTextCard(
             if (referenceText.isBlank()) "Kein Referenzvergleich aktiv." else "Referenzvergleich aktiv · Wörter: $wordCount",
             color = if (referenceText.isBlank()) TextMuted else Good
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onPasteFromClipboard) { Text("Aus Zwischenablage") }
-            OutlinedButton(onClick = onClear, enabled = referenceText.isNotBlank()) { Text("Referenz leeren") }
+        ActionStack {
+            SecondaryActionButton("Aus Zwischenablage", onPasteFromClipboard)
+            SecondaryActionButton("Referenz leeren", onClear, enabled = referenceText.isNotBlank())
         }
     }
 }
@@ -1177,13 +1292,9 @@ private fun HistoryCard(
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onToggle, enabled = history.isNotEmpty()) {
-                Text(if (expanded) "Historie ausblenden" else "Historie anzeigen")
-            }
-            OutlinedButton(onClick = onClear, enabled = history.isNotEmpty()) {
-                Text("Historie löschen")
-            }
+        ActionStack {
+            SecondaryActionButton(if (expanded) "Historie ausblenden" else "Historie anzeigen", onToggle, enabled = history.isNotEmpty())
+            SecondaryActionButton("Historie löschen", onClear, enabled = history.isNotEmpty())
         }
         AnimatedVisibility(expanded && history.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1279,14 +1390,10 @@ private fun ModelCard(
         }
         Text(spec.tradeoff, color = TextMain, lineHeight = 19.sp)
         Text(spec.notes, color = TextMuted, lineHeight = 19.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onDownload,
-                enabled = !busy,
-                colors = benchButtonColors()
-            ) { Text(if (installed) "Neu laden" else "Download") }
+        ActionStack {
+            PrimaryActionButton(if (installed) "Neu laden" else "Download", onDownload, enabled = !busy)
             if (installed) {
-                OutlinedButton(onClick = onDelete, enabled = !busy) { Text("Löschen") }
+                SecondaryActionButton("Löschen", onDelete, enabled = !busy)
             }
         }
         if (busyLabel?.contains(spec.displayName) == true) Text("$busyLabel $progress%", color = TextMuted)
@@ -1367,14 +1474,12 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit, onCopyRepor
 
     Card(colors = CardDefaults.cardColors(containerColor = Surface2), shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Ergebnis", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(result.model, color = TextMuted)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = onCopyReport) { Text("Report kopieren") }
-                    OutlinedButton(onClick = onReset) { Text("Reset") }
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Ergebnis", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(result.model, color = TextMuted)
+                ActionStack {
+                    SecondaryActionButton("Report kopieren", onCopyReport)
+                    SecondaryActionButton("Reset", onReset)
                 }
             }
             Text(result.verdict.message, color = passColor, fontWeight = FontWeight.SemiBold)
@@ -1395,7 +1500,7 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit, onCopyRepor
             }
             AnimatedVisibility(transcriptExpanded) {
                 Column(Modifier.background(Color(0xFF11070D), RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Komplettes erkanntes Exzerpt", color = TextMain, fontWeight = FontWeight.Bold)
+                    Text("Komplettes erkanntes Transkript", color = TextMain, fontWeight = FontWeight.Bold)
                     if (result.segments.isEmpty()) {
                         Text(result.transcript.ifBlank { "Kein Transkript erkannt." }, color = TextMuted)
                     } else {

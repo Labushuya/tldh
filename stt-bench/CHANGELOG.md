@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.7 - Responsive UI + real longform goldstandard profiles
+
+- Clarifies that WER/CER compares the reference text against the actual recognized Vosk transcript, not against a summary.
+- Expands the CC0 German reference corpus from 8 starter clips to a larger clean-speech pool for more realistic tests.
+- Adds generated Longform profiles: ~30 seconds, ~90 seconds, and ~4 minutes as single WAV benchmark audios.
+- Longform generation concatenates real downloaded reference recordings with short pauses and builds the matching reference transcript automatically.
+- Reworks button layout into full-width responsive action stacks to avoid shifted/cramped button labels on phone screens.
+- Changes section navigation to a less cramped two-column layout and uses deterministic scroll-to-top on section changes.
+- Release tag moves to `stt-bench-v0.2.7`.
+- Workflow and Gradle version defaults move to `0.2.7` / versionCode `207`.
+
 ## 0.2.6 - Usability revamp, updater restore, long-run profiles
 
 ### Added

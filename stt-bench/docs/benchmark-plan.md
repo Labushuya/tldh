@@ -1,14 +1,14 @@
 # Benchmark Plan
 
-## v0.2.6 focus
+## v0.2.7 focus
 
-Measure Vosk model speed and recognition quality on real German audio with a clearer section-based workflow and longer repeatable batch profiles.
+Measure Vosk model speed and recognition quality on real German audio with a responsive section-based workflow, expanded gold-standard corpus, generated 30s/90s/4min longform profiles, and repeatable batch reports.
 
 ## Test flow
 
 1. Install/select Vosk model.
-2. Share audio into `tl;dh STT Bench`.
-3. Paste the correct reference transcript when available.
+2. Share audio into `tl;dh STT Bench`, select a gold-standard sample, or generate a 30s/90s/4min longform WAV profile.
+3. Confirm that the reference field contains the expected transcript when WER/CER is needed.
 4. Run benchmark.
 5. Review:
    - total time
@@ -18,12 +18,19 @@ Measure Vosk model speed and recognition quality on real German audio with a cle
    - reference vs recognized text
 6. Compare the last 5 benchmark runs in history.
 7. For model-level comparison, run the installed gold-standard corpus as a batch and copy the Markdown report.
-8. For longer repeatable workloads, select 3×, 8×, or 20× corpus repeats before starting the batch.
+8. For realistic long audio behavior, generate one of the single-file longform profiles and run it as an Einzelbenchmark.
+9. For aggregate model comparison, select 3×, 8×, or 20× corpus repeats before starting the batch.
 
 ## Interpretation
 
 - Speed passes when total time stays within the target class.
 - Recognition quality is considered usable only if WER/CER are low enough for TL;DR extraction and critical terms such as negations, times, dates, names and quantities are correctly recognized.
+
+## Longform interpretation
+
+- The generated longform WAV is one actual audio file, not just a UI-level loop.
+- WER/CER compares the joined reference transcript against the recognized Vosk transcript.
+- 30s approximates a short voice message; 90s approximates a longer real message; 4min stress-tests local speed and memory behavior.
 
 ## Batch interpretation
 
@@ -39,4 +46,4 @@ If Vosk small remains too inaccurate, continue with preprocessing, context vocab
 
 ## UX notes
 
-The app is split into sections instead of one long scroll stack. After single or batch benchmark completion, the app routes to **Ergebnisse** so the user does not have to hunt for the output. The **Updates** section restores the manual in-app installer for benchmark releases.
+The app is split into sections instead of one long scroll stack. Buttons use full-width responsive action rows to avoid cramped labels on phone screens. After single or batch benchmark completion, the app routes to **Ergebnisse** so the user does not have to hunt for the output. The **Updates** section restores the manual in-app installer for benchmark releases.
