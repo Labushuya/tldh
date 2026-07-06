@@ -2,6 +2,7 @@ package dev.bitsbots.tldhbench.corpus
 
 import android.content.Context
 import android.net.Uri
+import dev.bitsbots.tldhbench.share.AudioSourceKind
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,7 +28,12 @@ class ReferenceCorpusManager(private val context: Context) {
     fun sharedAudio(sample: ReferenceSample): SharedAudio {
         val file = sampleFile(sample)
         if (!file.isFile) throw IllegalStateException("Testaudio ist noch nicht heruntergeladen: ${sample.id}")
-        return SharedAudio(uri = Uri.fromFile(file), mimeType = sample.mimeType)
+        return SharedAudio(
+            uri = Uri.fromFile(file),
+            mimeType = sample.mimeType,
+            sourceKind = AudioSourceKind.GOLDSTANDARD_SAMPLE,
+            displayName = "${sample.id} · ${sample.title}"
+        )
     }
 
     suspend fun download(sample: ReferenceSample, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {

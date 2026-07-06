@@ -1,15 +1,21 @@
 # Changelog
 
-## 0.2.7 - Responsive UI + real longform goldstandard profiles
+## 0.2.8 - Audio source clarity, word deviations, non-speech reduction
 
-- Clarifies that WER/CER compares the reference text against the actual recognized Vosk transcript, not against a summary.
-- Expands the CC0 German reference corpus from 8 starter clips to a larger clean-speech pool for more realistic tests.
-- Adds generated Longform profiles: ~30 seconds, ~90 seconds, and ~4 minutes as single WAV benchmark audios.
-- Longform generation concatenates real downloaded reference recordings with short pauses and builds the matching reference transcript automatically.
-- Reworks button layout into full-width responsive action stacks to avoid shifted/cramped button labels on phone screens.
-- Changes section navigation to a less cramped two-column layout and uses deterministic scroll-to-top on section changes.
-- Release tag moves to `stt-bench-v0.2.7`.
-- Workflow and Gradle version defaults move to `0.2.7` / versionCode `207`.
+### Added
+- Explicit audio source tracking: external Android share, gold-standard sample, or generated longform audio.
+- Shared WhatsApp/Telegram audio now clears stale gold-standard selection and stale reference text automatically.
+- Benchmark tab now shows a clear "Audioquelle aktiv / bereit" box with source, file hint and reference status.
+- In-app metric explanation for WER, CER and S/I/D.
+- Result UI now shows a first-class Abweichungsübersicht: total word errors, S/I/D split, character errors and first word-level diffs.
+- Batch UI and Markdown reports now include Wortfehler and S/I/D per sample.
+- Conservative non-speech preprocessing before Vosk: basic silence trim / long-pause compression with warning when material was removed.
+
+### Changed
+- Batch repeat selector uses full-width responsive buttons (`1× Corpus`, `3× Corpus`, `8× Corpus`, `20× Corpus`) so the `×` no longer wraps under the number.
+- Results without a reference text now explicitly say that WER/CER/S/I/D cannot be calculated.
+- Release tag moves to `stt-bench-v0.2.8`.
+- Workflow and Gradle version defaults move to `0.2.8` / versionCode `208`.
 
 ## 0.2.6 - Usability revamp, updater restore, long-run profiles
 

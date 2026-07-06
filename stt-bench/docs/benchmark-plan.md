@@ -1,8 +1,8 @@
 # Benchmark Plan
 
-## v0.2.7 focus
+## v0.2.8 focus
 
-Measure Vosk model speed and recognition quality on real German audio with a responsive section-based workflow, expanded gold-standard corpus, generated 30s/90s/4min longform profiles, and repeatable batch reports.
+Measure Vosk model speed and recognition quality on real German audio with explicit active-audio source tracking, word-level deviation analysis, conservative non-speech reduction, generated 30s/90s/4min longform profiles, and repeatable batch reports.
 
 ## Test flow
 
@@ -15,11 +15,13 @@ Measure Vosk model speed and recognition quality on real German audio with a res
    - RTF
    - transcript with timestamps
    - WER / CER
+   - S/I/D and total word errors
+   - first word-level deviations
    - reference vs recognized text
 6. Compare the last 5 benchmark runs in history.
 7. For model-level comparison, run the installed gold-standard corpus as a batch and copy the Markdown report.
 8. For realistic long audio behavior, generate one of the single-file longform profiles and run it as an Einzelbenchmark.
-9. For aggregate model comparison, select 3×, 8×, or 20× corpus repeats before starting the batch.
+9. For aggregate model comparison, select 3×, 8×, or 20× Corpus repeats before starting the batch. These are repeated corpus runs, not single concatenated audios.
 
 ## Interpretation
 
@@ -41,9 +43,9 @@ Measure Vosk model speed and recognition quality on real German audio with a res
 
 ## Next candidates
 
-If Vosk small remains too inaccurate, continue with preprocessing, context vocabulary, or larger Vosk models before testing other STT engines.
+If Vosk small remains too inaccurate, compare the new non-speech-reduction results against previous runs, then continue with context vocabulary, larger Vosk models, or other STT engines.
 
 
 ## UX notes
 
-The app is split into sections instead of one long scroll stack. Buttons use full-width responsive action rows to avoid cramped labels on phone screens. After single or batch benchmark completion, the app routes to **Ergebnisse** so the user does not have to hunt for the output. The **Updates** section restores the manual in-app installer for benchmark releases.
+The app is split into sections instead of one long scroll stack. The active-audio card must always make clear whether the source is Android Share, Goldstandard or Longform. Buttons use full-width responsive action rows to avoid cramped labels on phone screens. After single or batch benchmark completion, the app routes to **Ergebnisse** so the user does not have to hunt for the output. The **Updates** section restores the manual in-app installer for benchmark releases.

@@ -63,6 +63,7 @@ import dev.bitsbots.tldhbench.bench.BenchmarkRunner
 import dev.bitsbots.tldhbench.bench.Signal
 import dev.bitsbots.tldhbench.bench.VoskModelCatalog
 import dev.bitsbots.tldhbench.bench.VoskModelSpec
+import dev.bitsbots.tldhbench.bench.WordDiffType
 import dev.bitsbots.tldhbench.audio.LongFormAudioComposer
 import dev.bitsbots.tldhbench.audio.LongFormProfile
 import dev.bitsbots.tldhbench.audio.LongFormProfiles
@@ -72,6 +73,7 @@ import dev.bitsbots.tldhbench.corpus.ReferenceSample
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryItem
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryStore
 import dev.bitsbots.tldhbench.models.VoskModelManager
+import dev.bitsbots.tldhbench.share.AudioSourceKind
 import dev.bitsbots.tldhbench.share.SharedAudio
 import dev.bitsbots.tldhbench.updates.ApkInstaller
 import dev.bitsbots.tldhbench.updates.BenchmarkReleaseSelector
@@ -139,6 +141,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var referenceText by remember { mutableStateOf("") }
     var batchReport by remember { mutableStateOf<BatchRunReport?>(null) }
     var batchRepeatCount by remember { mutableIntStateOf(1) }
+    var lastHandledExternalShareKey by remember { mutableStateOf<String?>(null) }
 
     fun resetBenchmark(clearBatch: Boolean = false) {
         result = null
@@ -262,6 +265,25 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             busyLabel = null
             historyExpanded = true
             selectedSection = BenchSection.Results
+        }
+    }
+
+    LaunchedEffect(sharedAudioState.value?.uri?.toString(), sharedAudioState.value?.createdAtMs, sharedAudioState.value?.sourceKind) {
+        val audio = sharedAudioState.value
+        if (audio?.sourceKind == AudioSourceKind.EXTERNAL_SHARE) {
+            val key = "${audio.uri}|${audio.createdAtMs}"
+            if (key != lastHandledExternalShareKey) {
+                lastHandledExternalShareKey = key
+                selectedSample = null
+                selectedLongFormLabel = null
+                referenceText = ""
+                result = null
+                batchReport = null
+                error = null
+                busyLabel = null
+                progress = 0
+                selectedSection = BenchSection.Run
+            }
         }
     }
 
@@ -574,7 +596,8 @@ private fun ActiveSetupCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Aktueller Prüfstand", color = TextMain, fontWeight = FontWeight.Bold)
                     Text("Modell: ${selectedModel.displayName}", color = if (modelInstalled) Good else Warn, lineHeight = 18.sp)
-                    Text("Audio: ${selectedLongFormLabel ?: selectedSample?.id ?: sharedAudio?.mimeType ?: "noch keine Quelle"}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
+                    Text("Quelle: ${activeAudioSourceLabel(sharedAudio)}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
+                    Text("Audio: ${activeAudioTitle(sharedAudio, selectedSample, selectedLongFormLabel)}", color = if (sharedAudio != null) TextMain else TextMuted, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 Text("$installedSampleCount/$totalSampleCount", color = if (installedSampleCount > 0) Good else TextMuted, fontWeight = FontWeight.Bold)
             }
@@ -729,11 +752,13 @@ private fun RunSection(
         selectedModelInstalled = selectedModelInstalled,
         selectedSample = selectedSample,
         selectedLongFormLabel = selectedLongFormLabel,
+        referenceText = referenceText,
         busy = busy,
         busyLabel = busyLabel,
         onRunSingle = onRunSingle,
         onReset = onReset
     )
+    MetricHelpCard()
     LongFormScenarioCard(
         installedCount = installedSampleCount,
         totalCount = totalSampleCount,
@@ -771,25 +796,34 @@ private fun BenchmarkActionCard(
     selectedModelInstalled: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
+    referenceText: String,
     busy: Boolean,
     busyLabel: String?,
     onRunSingle: () -> Unit,
     onReset: () -> Unit
 ) {
     CardBlock(title = "Einzelbenchmark") {
-        Text(
-            if (sharedAudio == null) "Teile eine WhatsApp/Telegram-Audio an diese Benchmark-App oder wähle ein Goldstandard-Sample." else "Audio bereit: ${sharedAudio.mimeType ?: "unbekannter MIME-Type"}",
-            color = if (sharedAudio == null) TextMuted else Good
+        ActiveAudioBox(
+            sharedAudio = sharedAudio,
+            selectedSample = selectedSample,
+            selectedLongFormLabel = selectedLongFormLabel,
+            referenceText = referenceText
         )
         Spacer(Modifier.height(8.dp))
         Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
-        selectedSample?.let { Text("Goldstandard: ${it.id} · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold) }
-        selectedLongFormLabel?.let { Text("Longform: $it · Referenz automatisch gesetzt", color = Good, fontWeight = FontWeight.SemiBold) }
         if (!selectedModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
+        if (sharedAudio?.sourceKind == AudioSourceKind.EXTERNAL_SHARE && referenceText.isBlank()) {
+            Text(
+                "Eigene Shared-Audio ist bereit. Für WER/CER/S/I/D musst Du darunter noch den korrekten Referenztext einfügen; sonst misst die App nur Speed und erzeugt das erkannte Transkript.",
+                color = Warn,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        }
         Spacer(Modifier.height(10.dp))
         ActionStack {
-            PrimaryActionButton("Benchmark starten", onRunSingle, enabled = sharedAudio != null && selectedModelInstalled && !busy)
-            SecondaryActionButton("Reset", onReset, enabled = !busy)
+            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = sharedAudio != null && selectedModelInstalled && !busy)
+            SecondaryActionButton("Lauf zurücksetzen", onReset, enabled = !busy)
         }
         if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -797,6 +831,37 @@ private fun BenchmarkActionCard(
                 Text(busyLabel, color = TextMuted)
             }
         }
+    }
+}
+
+
+@Composable
+private fun ActiveAudioBox(
+    sharedAudio: SharedAudio?,
+    selectedSample: ReferenceSample?,
+    selectedLongFormLabel: String?,
+    referenceText: String
+) {
+    val ready = sharedAudio != null
+    val title = activeAudioTitle(sharedAudio, selectedSample, selectedLongFormLabel)
+    val source = activeAudioSourceLabel(sharedAudio)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (ready) Color(0xFF0F1D17) else Color(0xFF1A0A12), RoundedCornerShape(18.dp))
+            .border(1.dp, if (ready) Good else FieldBorder, RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(if (ready) "Audioquelle aktiv / bereit" else "Keine Audioquelle aktiv", color = if (ready) Good else TextMuted, fontWeight = FontWeight.Bold)
+        Text("Quelle: $source", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text(title, color = TextMuted, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(
+            if (referenceText.isBlank()) "Referenz: fehlt → keine Wortabweichungen möglich" else "Referenz: aktiv · ${referenceText.wordCount()} Wörter → WER/CER/S/I/D wird berechnet",
+            color = if (referenceText.isBlank()) Warn else Good,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
     }
 }
 
@@ -1100,6 +1165,17 @@ private fun ReferenceSampleCard(
     }
 }
 
+
+@Composable
+private fun MetricHelpCard() {
+    CardBlock(title = "Metriken kurz erklärt") {
+        Text("WER = Wortfehlerrate: alle Wortabweichungen geteilt durch die Anzahl der Referenzwörter.", color = TextMuted, lineHeight = 19.sp)
+        Text("CER = Zeichenfehlerrate: dasselbe Prinzip auf Buchstaben-/Ziffernebene.", color = TextMuted, lineHeight = 19.sp)
+        Text("S/I/D = Substitutionen / Insertions / Deletions: ersetzte, zusätzlich erkannte oder fehlende Wörter.", color = TextMuted, lineHeight = 19.sp)
+        Text("Die Abweichungsübersicht erscheint nach dem Benchmark im Ergebnis. Bei eigenen Shared-Audios nur dann, wenn Du einen korrekten Referenztext einfügst.", color = Good, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
 @Composable
 private fun LongFormScenarioCard(
     installedCount: Int,
@@ -1167,16 +1243,18 @@ private fun BatchBenchmarkCard(
         Text("Goldstandard-Audios bereit: $installedCount/$totalCount", color = if (installedCount > 0) Good else TextMuted)
         Text(if (selectedModelInstalled) "Modell installiert: ja" else "Modell installiert: nein", color = if (selectedModelInstalled) Good else Warn)
         Text("Geplante Läufe: ${installedCount * batchRepeatCount} · Profil: ${batchRepeatCount}× Corpus", color = TextMain, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("1×/3×/8×/20× bedeutet: kompletter geladener Goldstandard-Korpus wird so oft wiederholt. Das ist ein Batch-Langlauf, kein einzelnes zusammengeklebtes Audio.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        ActionStack {
             listOf(1, 3, 8, 20).forEach { repeatCount ->
+                val label = "${repeatCount}× Corpus"
                 if (repeatCount == batchRepeatCount) {
-                    Button(onClick = { onRepeatChange(repeatCount) }, modifier = Modifier.weight(1f), enabled = !busy, colors = benchButtonColors()) { Text("${repeatCount}×") }
+                    PrimaryActionButton(label, { onRepeatChange(repeatCount) }, enabled = !busy)
                 } else {
-                    OutlinedButton(onClick = { onRepeatChange(repeatCount) }, modifier = Modifier.weight(1f), enabled = !busy) { Text("${repeatCount}×") }
+                    SecondaryActionButton(label, { onRepeatChange(repeatCount) }, enabled = !busy)
                 }
             }
         }
-        Text("Hinweis: Das ist ein reproduzierbarer Langlauf über mehrere Referenzdateien, kein künstlich zusammengeklebtes WhatsApp-Audio. Für echte Long-Form-Audios weiter eigene Dateien teilen.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Text("Für realistische Einzel-Audios mit ca. 30 Sekunden, 90 Sekunden oder 4 Minuten nutze die Longform-Testaudios oben. Für echte WhatsApp-/Telegram-Dateien teile die Audio direkt an diese App.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
             PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && selectedModelInstalled)
             SecondaryActionButton("Report kopieren", { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null)
@@ -1215,7 +1293,7 @@ private fun BatchReportBlock(report: BatchRunReport) {
         report.results.forEach { item ->
             val comparison = item.referenceComparison
             Text(
-                "• ${item.metadata.displayName ?: item.metadata.uriString.substringAfterLast('/')} · Gesamt ${fmtMs(item.timing.totalMs)} · RTF ${item.timing.rtf?.let { fmtNumber(it) } ?: "n/a"} · WER ${comparison?.werPercent?.let { fmtPct(it) } ?: "n/a"}",
+                "• ${item.metadata.displayName ?: item.metadata.uriString.substringAfterLast('/')} · Gesamt ${fmtMs(item.timing.totalMs)} · RTF ${item.timing.rtf?.let { fmtNumber(it) } ?: "n/a"} · Wortfehler ${comparison?.wordDistance?.toString() ?: "n/a"} · WER ${comparison?.werPercent?.let { fmtPct(it) } ?: "n/a"} · S/I/D ${comparison?.let { "${it.wordSubstitutions}/${it.wordInsertions}/${it.wordDeletions}" } ?: "n/a"}",
                 color = TextMuted,
                 lineHeight = 19.sp
             )
@@ -1422,6 +1500,7 @@ private fun SignalChip(label: String, signal: Signal) {
 @Composable
 private fun ReferenceComparisonBlock(comparison: dev.bitsbots.tldhbench.bench.ReferenceComparison) {
     var expanded by remember { mutableStateOf(false) }
+    var diffExpanded by remember { mutableStateOf(true) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -1429,20 +1508,46 @@ private fun ReferenceComparisonBlock(comparison: dev.bitsbots.tldhbench.bench.Re
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("Referenzvergleich", color = TextMain, fontWeight = FontWeight.Bold)
+        Text("Abweichungsübersicht", color = TextMain, fontWeight = FontWeight.Bold)
         Text(comparison.summary, color = comparisonColor(comparison.werPercent), fontWeight = FontWeight.SemiBold)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF170A12), RoundedCornerShape(14.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            MetricLine("Wortabweichungen gesamt", "${comparison.wordDistance} von ${comparison.referenceWordCount} Referenzwörtern")
+            MetricLine("S — ersetzt", comparison.wordSubstitutions.toString())
+            MetricLine("I — zusätzlich erkannt", comparison.wordInsertions.toString())
+            MetricLine("D — fehlt in Erkennung", comparison.wordDeletions.toString())
+            MetricLine("Zeichenfehler", "${comparison.charDistance} von ${comparison.referenceCharCount} Zeichen")
+        }
         Text(
-            "Wörter Ref/Hyp: ${comparison.referenceWordCount}/${comparison.hypothesisWordCount} · Wortfehler: ${comparison.wordDistance} · Sub/Ins/Del: ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}",
+            "WER ist der Blick auf Wörter; CER ist der Blick auf Zeichen. S/I/D sind die konkreten Wortfehler hinter der WER.",
             color = TextMuted,
-            lineHeight = 19.sp
+            fontSize = 13.sp,
+            lineHeight = 18.sp
         )
-        Text(
-            "Zeichenfehler: ${comparison.charDistance}/${comparison.referenceCharCount}",
-            color = TextMuted,
-            lineHeight = 19.sp
-        )
+        if (comparison.wordDiffs.isNotEmpty()) {
+            OutlinedButton(onClick = { diffExpanded = !diffExpanded }) {
+                Text(if (diffExpanded) "Wortfehlerliste einklappen" else "Wortfehlerliste anzeigen")
+            }
+            AnimatedVisibility(diffExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    comparison.wordDiffs.take(40).forEachIndexed { index, diff ->
+                        Text("${index + 1}. ${formatWordDiff(diff)}", color = TextMuted, lineHeight = 18.sp)
+                    }
+                    if (comparison.wordDiffs.size > 40) {
+                        Text("… ${comparison.wordDiffs.size - 40} weitere Wortabweichungen im kopierten Report/Transkript prüfen.", color = TextMuted, fontSize = 13.sp)
+                    }
+                }
+            }
+        } else {
+            Text("Keine Wortabweichungen gefunden.", color = Good, fontSize = 13.sp)
+        }
         OutlinedButton(onClick = { expanded = !expanded }) {
-            Text(if (expanded) "Referenz einklappen" else "Referenz und Erkennung anzeigen")
+            Text(if (expanded) "Referenz/Erkennung einklappen" else "Referenz und Erkennung anzeigen")
         }
         AnimatedVisibility(expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1452,6 +1557,36 @@ private fun ReferenceComparisonBlock(comparison: dev.bitsbots.tldhbench.bench.Re
                 Text(comparison.hypothesisRaw.ifBlank { "Kein Transkript erkannt." }, color = TextMuted, lineHeight = 19.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun MetricLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = TextMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = TextMain, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+    }
+}
+
+private fun formatWordDiff(diff: dev.bitsbots.tldhbench.bench.WordDiff): String = when (diff.type) {
+    WordDiffType.SUBSTITUTE -> "Wort ${diff.referenceIndex}: '${diff.referenceWord}' → '${diff.hypothesisWord}'"
+    WordDiffType.INSERT -> "zusätzlich erkannt bei Wort ${diff.hypothesisIndex}: '${diff.hypothesisWord}'"
+    WordDiffType.DELETE -> "fehlt ab Referenz-Wort ${diff.referenceIndex}: '${diff.referenceWord}'"
+}
+
+
+@Composable
+private fun NoReferenceComparisonBlock() {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A0A12), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text("Keine Wortabweichungen berechnet", color = Warn, fontWeight = FontWeight.Bold)
+        Text("Für diese Audio war kein korrekter Referenztext aktiv. Die App kann deshalb Speed, Formatdaten und erkanntes Transkript zeigen, aber keine WER/CER/S/I/D-Wortabweichungen.", color = TextMuted, lineHeight = 19.sp)
+        Text("Bei eigenen Shared-Audios: Referenztext im Benchmark-Tab einfügen und denselben Lauf erneut starten.", color = Good, fontSize = 13.sp, lineHeight = 18.sp)
     }
 }
 
@@ -1486,7 +1621,7 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit, onCopyRepor
             Text("Gesamt: ${fmtMs(result.timing.totalMs)} · Audio: ${fmtMs(result.timing.audioDurationMs)} · RTF: ${result.timing.rtf?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}", color = TextMain)
             Text("Decode: ${fmtMs(result.timing.decodeMs)} · Modell: ${fmtMs(result.timing.modelLoadMs)} · STT: ${fmtMs(result.timing.sttMs)}", color = TextMuted)
 
-            result.referenceComparison?.let { ReferenceComparisonBlock(it) }
+            result.referenceComparison?.let { ReferenceComparisonBlock(it) } ?: NoReferenceComparisonBlock()
 
             if (result.warnings.isNotEmpty()) {
                 Column(Modifier.background(Color(0xFF2A111F), RoundedCornerShape(16.dp)).padding(12.dp)) {
@@ -1570,8 +1705,8 @@ private fun BatchRunReport.toMarkdown(): String {
     lines += "- Ø CER: ${avgCerPercent?.let { fmtPct(it) } ?: "n/a"}"
     lines += "- Schwächste WER: $worstWerLabel"
     lines += ""
-    lines += "| Sample | Dauer | Gesamt | Decode | Modell | STT | RTF | WER | CER | Verdict |"
-    lines += "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    lines += "| Sample | Dauer | Gesamt | Decode | Modell | STT | RTF | Wortfehler | S/I/D | WER | CER | Verdict |"
+    lines += "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     results.forEach { result ->
         val comparison = result.referenceComparison
         lines += listOf(
@@ -1582,6 +1717,8 @@ private fun BatchRunReport.toMarkdown(): String {
             fmtMs(result.timing.modelLoadMs),
             fmtMs(result.timing.sttMs),
             result.timing.rtf?.let { fmtNumber(it) } ?: "n/a",
+            comparison?.wordDistance?.toString() ?: "n/a",
+            comparison?.let { "${it.wordSubstitutions}/${it.wordInsertions}/${it.wordDeletions}" } ?: "n/a",
             comparison?.werPercent?.let { fmtPct(it) } ?: "n/a",
             comparison?.cerPercent?.let { fmtPct(it) } ?: "n/a",
             result.verdict.message.replace("|", "/")
@@ -1595,6 +1732,10 @@ private fun BatchRunReport.toMarkdown(): String {
         lines += ""
         result.referenceComparison?.let { comparison ->
             lines += "- ${comparison.summary}"
+            lines += "- Wortfehler: ${comparison.wordDistance} von ${comparison.referenceWordCount}; S/I/D ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}"
+            if (comparison.wordDiffs.isNotEmpty()) {
+                lines += "- Erste Wortabweichungen: " + comparison.wordDiffs.take(25).joinToString("; ") { formatWordDiff(it) }
+            }
             lines += "- Referenz: ${comparison.referenceRaw}"
         }
         lines += "- Erkannt: ${result.transcript.ifBlank { "Kein Transkript erkannt." }}"
@@ -1620,6 +1761,10 @@ private fun BenchmarkResult.toMarkdown(): String {
     lines += "- Verdict: ${verdict.message}"
     referenceComparison?.let { comparison ->
         lines += "- Referenzvergleich: ${comparison.summary}"
+        lines += "- Wortfehler: ${comparison.wordDistance} von ${comparison.referenceWordCount}; S/I/D ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}"
+        if (comparison.wordDiffs.isNotEmpty()) {
+            lines += "- Erste Wortabweichungen: " + comparison.wordDiffs.take(40).joinToString("; ") { formatWordDiff(it) }
+        }
     }
     if (warnings.isNotEmpty()) {
         lines += ""
@@ -1652,6 +1797,28 @@ private fun copyToClipboard(context: Context, label: String, text: String) {
 }
 
 private fun List<Double>.averageOrNull(): Double? = if (isEmpty()) null else average()
+
+
+private fun activeAudioSourceLabel(sharedAudio: SharedAudio?): String = when (sharedAudio?.sourceKind) {
+    AudioSourceKind.EXTERNAL_SHARE -> "Geteilte Audio aus Android Share"
+    AudioSourceKind.GOLDSTANDARD_SAMPLE -> "Goldstandard-Testaudio"
+    AudioSourceKind.GENERATED_LONGFORM -> "Generiertes Longform-Testaudio"
+    null -> "keine Quelle"
+}
+
+private fun activeAudioTitle(
+    sharedAudio: SharedAudio?,
+    selectedSample: ReferenceSample?,
+    selectedLongFormLabel: String?
+): String {
+    if (sharedAudio == null) return "Teile eine WhatsApp/Telegram-Audio an diese App oder wähle ein Goldstandard-/Longform-Testaudio."
+    return when (sharedAudio.sourceKind) {
+        AudioSourceKind.EXTERNAL_SHARE -> "${sharedAudio.displayName ?: sharedAudio.uri.toString().substringAfterLast('/')} · ${sharedAudio.mimeType ?: "MIME unbekannt"}"
+        AudioSourceKind.GOLDSTANDARD_SAMPLE -> selectedSample?.let { "${it.id} · ${it.title} · Referenz automatisch gesetzt" }
+            ?: (sharedAudio.displayName ?: sharedAudio.uri.toString().substringAfterLast('/'))
+        AudioSourceKind.GENERATED_LONGFORM -> selectedLongFormLabel ?: (sharedAudio.displayName ?: "Longform-Testaudio")
+    }
+}
 
 private fun fmtNumber(value: Double): String = String.format(Locale.GERMANY, "%.2f", value)
 

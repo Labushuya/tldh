@@ -14,17 +14,33 @@ import java.nio.ByteOrder
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
+
+private const val TARGET_SAMPLE_RATE = 16_000
+private const val TARGET_CHANNEL_COUNT = 1
+private const val BYTES_PER_SAMPLE = 2
+
+/**
+ * Conservative preprocessing summary. The benchmark still evaluates speed against the
+ * original input duration, but Vosk receives the reduced PCM stream.
+ */
+data class AudioPreprocessingInfo(
+    val enabled: Boolean = true,
+    val originalPcmDurationMs: Long? = null,
+    val processedPcmDurationMs: Long? = null,
+    val removedMs: Long = 0L,
+    val removedPercent: Double = 0.0,
+    val note: String = "Basic silence trim / long-pause compression"
+)
 
 data class PreparedPcmAudio(
     val file: File,
     val sampleRate: Int = TARGET_SAMPLE_RATE,
     val channelCount: Int = TARGET_CHANNEL_COUNT,
     val encoding: Int = android.media.AudioFormat.ENCODING_PCM_16BIT,
-    val durationMs: Long?
+    val durationMs: Long?,
+    val preprocessing: AudioPreprocessingInfo = AudioPreprocessingInfo(enabled = false)
 )
-
-private const val TARGET_SAMPLE_RATE = 16_000
-private const val TARGET_CHANNEL_COUNT = 1
 
 internal class PcmAudioPreparer(
     private val context: Context,
@@ -52,9 +68,15 @@ internal class PcmAudioPreparer(
 
             val decodedMono = decodeMonoPcm16(extractor, decoder, durationMs)
             val sampleRate = currentSampleRate ?: inputFormat.optionalInt(MediaFormat.KEY_SAMPLE_RATE, TARGET_SAMPLE_RATE)
-            writeResampled16kMono(decodedMono, sampleRate, output)
+            val resampled = resampleTo16kMono(decodedMono, sampleRate)
+            val reduced = NonSpeechReducer.reduce(resampled)
+            writePcm16(reduced.samples, output)
 
-            PreparedPcmAudio(file = output, durationMs = durationMs)
+            PreparedPcmAudio(
+                file = output,
+                durationMs = durationMs,
+                preprocessing = reduced.info
+            )
         } finally {
             runCatching { decoder?.stop() }
             runCatching { decoder?.release() }
@@ -126,7 +148,7 @@ internal class PcmAudioPreparer(
 
     private fun appendMonoPcm16(buffer: ByteBuffer, channelCount: Int, out: ShortArrayBuilder) {
         buffer.order(ByteOrder.LITTLE_ENDIAN)
-        val frameBytes = 2 * channelCount
+        val frameBytes = BYTES_PER_SAMPLE * channelCount
         while (buffer.remaining() >= frameBytes) {
             var sum = 0
             for (channel in 0 until channelCount) {
@@ -136,33 +158,30 @@ internal class PcmAudioPreparer(
         }
     }
 
-    private fun writeResampled16kMono(samples: ShortArray, inputSampleRate: Int, output: File) {
-        FileOutputStream(output).use { stream ->
-            if (samples.isEmpty()) return@use
-            if (inputSampleRate == TARGET_SAMPLE_RATE) {
-                val bytes = ByteArray(samples.size * 2)
-                var offset = 0
-                samples.forEach { sample ->
-                    bytes[offset++] = (sample.toInt() and 0xFF).toByte()
-                    bytes[offset++] = ((sample.toInt() shr 8) and 0xFF).toByte()
-                }
-                stream.write(bytes)
-                return@use
-            }
+    private fun resampleTo16kMono(samples: ShortArray, inputSampleRate: Int): ShortArray {
+        if (samples.isEmpty()) return samples
+        if (inputSampleRate == TARGET_SAMPLE_RATE) return samples
+        val ratio = inputSampleRate.toDouble() / TARGET_SAMPLE_RATE.toDouble()
+        val outputCount = max(1, floor(samples.size / ratio).toInt())
+        val out = ShortArray(outputCount)
+        for (i in 0 until outputCount) {
+            val sourcePosition = i * ratio
+            val base = floor(sourcePosition).toInt().coerceIn(0, samples.lastIndex)
+            val next = min(base + 1, samples.lastIndex)
+            val fraction = sourcePosition - base
+            val interpolated = samples[base] * (1.0 - fraction) + samples[next] * fraction
+            out[i] = interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+        return out
+    }
 
-            val ratio = inputSampleRate.toDouble() / TARGET_SAMPLE_RATE.toDouble()
-            val outputCount = max(1, floor(samples.size / ratio).toInt())
-            val bytes = ByteArray(outputCount * 2)
+    private fun writePcm16(samples: ShortArray, output: File) {
+        FileOutputStream(output).use { stream ->
+            val bytes = ByteArray(samples.size * BYTES_PER_SAMPLE)
             var offset = 0
-            for (i in 0 until outputCount) {
-                val sourcePosition = i * ratio
-                val base = floor(sourcePosition).toInt().coerceIn(0, samples.lastIndex)
-                val next = min(base + 1, samples.lastIndex)
-                val fraction = sourcePosition - base
-                val interpolated = samples[base] * (1.0 - fraction) + samples[next] * fraction
-                val sample = interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                bytes[offset++] = (sample and 0xFF).toByte()
-                bytes[offset++] = ((sample shr 8) and 0xFF).toByte()
+            samples.forEach { sample ->
+                bytes[offset++] = (sample.toInt() and 0xFF).toByte()
+                bytes[offset++] = ((sample.toInt() shr 8) and 0xFF).toByte()
             }
             stream.write(bytes)
         }
@@ -170,4 +189,94 @@ internal class PcmAudioPreparer(
 
     private fun MediaFormat.optionalInt(key: String, fallback: Int): Int =
         if (containsKey(key)) getInteger(key) else fallback
+}
+
+private data class ReducedPcm(
+    val samples: ShortArray,
+    val info: AudioPreprocessingInfo
+)
+
+/**
+ * Conservative non-speech reduction:
+ * - removes leading/trailing very quiet stretches,
+ * - compresses longer internal silence/noise-floor stretches,
+ * - keeps padding around detected speech to avoid cutting word edges,
+ * - falls back to the original PCM when the gate would remove too much.
+ */
+private object NonSpeechReducer {
+    private const val FRAME_MS = 20
+    private const val PADDING_MS = 180
+    private const val MIN_KEEP_RATIO = 0.55
+    private const val MIN_REMOVED_MS_TO_REPORT = 250L
+
+    fun reduce(samples: ShortArray, sampleRate: Int = TARGET_SAMPLE_RATE): ReducedPcm {
+        val originalMs = durationMs(samples.size, sampleRate)
+        if (samples.size < sampleRate || samples.isEmpty()) {
+            return ReducedPcm(samples, AudioPreprocessingInfo(originalPcmDurationMs = originalMs, processedPcmDurationMs = originalMs))
+        }
+
+        val frameSize = max(1, sampleRate * FRAME_MS / 1000)
+        val frameCount = (samples.size + frameSize - 1) / frameSize
+        val rms = DoubleArray(frameCount)
+        for (frame in 0 until frameCount) {
+            val start = frame * frameSize
+            val end = min(samples.size, start + frameSize)
+            var sum = 0.0
+            var count = 0
+            for (i in start until end) {
+                val value = samples[i].toDouble()
+                sum += value * value
+                count += 1
+            }
+            rms[frame] = if (count == 0) 0.0 else sqrt(sum / count.toDouble())
+        }
+
+        val sorted = rms.copyOf().also { it.sort() }
+        val noiseFloor = sorted[(sorted.size * 0.25).toInt().coerceIn(0, sorted.lastIndex)]
+        val speechThreshold = max(280.0, min(1_600.0, noiseFloor * 3.8))
+        val keep = BooleanArray(frameCount) { rms[it] >= speechThreshold }
+        val paddingFrames = max(1, PADDING_MS / FRAME_MS)
+        val paddedKeep = BooleanArray(frameCount)
+        keep.forEachIndexed { index, shouldKeep ->
+            if (shouldKeep) {
+                val from = max(0, index - paddingFrames)
+                val to = min(frameCount - 1, index + paddingFrames)
+                for (i in from..to) paddedKeep[i] = true
+            }
+        }
+
+        val keptFrames = paddedKeep.count { it }
+        if (keptFrames == 0 || keptFrames.toDouble() / frameCount.toDouble() < MIN_KEEP_RATIO) {
+            return ReducedPcm(samples, AudioPreprocessingInfo(originalPcmDurationMs = originalMs, processedPcmDurationMs = originalMs, removedMs = 0L))
+        }
+
+        val out = ShortArrayBuilder(initialCapacity = keptFrames * frameSize)
+        for (frame in 0 until frameCount) {
+            if (!paddedKeep[frame]) continue
+            val start = frame * frameSize
+            val end = min(samples.size, start + frameSize)
+            for (i in start until end) out.add(samples[i])
+        }
+        val reduced = out.toArray()
+        val processedMs = durationMs(reduced.size, sampleRate)
+        val removedMs = (originalMs - processedMs).coerceAtLeast(0L)
+        val removedPercent = if (originalMs > 0L) removedMs * 100.0 / originalMs.toDouble() else 0.0
+        val reportRemovedMs = if (removedMs >= MIN_REMOVED_MS_TO_REPORT) removedMs else 0L
+        return ReducedPcm(
+            samples = if (reportRemovedMs > 0L) reduced else samples,
+            info = if (reportRemovedMs > 0L) {
+                AudioPreprocessingInfo(
+                    originalPcmDurationMs = originalMs,
+                    processedPcmDurationMs = processedMs,
+                    removedMs = removedMs,
+                    removedPercent = removedPercent
+                )
+            } else {
+                AudioPreprocessingInfo(originalPcmDurationMs = originalMs, processedPcmDurationMs = originalMs, removedMs = 0L)
+            }
+        )
+    }
+
+    private fun durationMs(sampleCount: Int, sampleRate: Int): Long =
+        ((sampleCount.toDouble() / sampleRate.toDouble()) * 1000.0).toLong().coerceAtLeast(0L)
 }

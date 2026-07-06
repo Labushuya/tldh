@@ -4,9 +4,23 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 
+/**
+ * Explicitly tracks where the active benchmark audio came from.
+ * This prevents a newly shared WhatsApp/Telegram audio from being shown as if an older
+ * Goldstandard/Longform selection were still active.
+ */
+enum class AudioSourceKind {
+    EXTERNAL_SHARE,
+    GOLDSTANDARD_SAMPLE,
+    GENERATED_LONGFORM
+}
+
 data class SharedAudio(
     val uri: Uri,
-    val mimeType: String?
+    val mimeType: String?,
+    val sourceKind: AudioSourceKind = AudioSourceKind.EXTERNAL_SHARE,
+    val displayName: String? = null,
+    val createdAtMs: Long = System.currentTimeMillis()
 )
 
 internal object ShareIntentReader {
@@ -14,7 +28,12 @@ internal object ShareIntentReader {
         if (intent == null) return null
         if (intent.action != Intent.ACTION_SEND) return null
         val uri = extractStreamUri(intent) ?: return null
-        return SharedAudio(uri = uri, mimeType = intent.type)
+        return SharedAudio(
+            uri = uri,
+            mimeType = intent.type,
+            sourceKind = AudioSourceKind.EXTERNAL_SHARE,
+            displayName = uri.lastPathSegment?.substringAfterLast('/')
+        )
     }
 
     @Suppress("DEPRECATION")

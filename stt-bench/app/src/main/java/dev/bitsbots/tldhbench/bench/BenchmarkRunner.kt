@@ -55,6 +55,11 @@ class BenchmarkRunner(private val context: Context) {
                 "Referenzvergleich: ${it.wordDeletions} Referenz-Wörter fehlen in der Erkennung. Fehlende Negationen/Zahlen besonders prüfen."
             }
         )
+        val preprocessingWarnings = listOfNotNull(
+            prepared.preprocessing.takeIf { it.enabled && it.removedMs > 0L }?.let {
+                "Nicht-Sprache-Reduktion aktiv: ca. ${formatSeconds(it.removedMs)} (${formatPercent(it.removedPercent)}) leise/pausierte PCM-Anteile vor Vosk entfernt. Timing-Verdict bleibt auf Originaldauer bezogen."
+            }
+        )
 
         BenchmarkResult(
             engine = "Vosk",
@@ -66,8 +71,12 @@ class BenchmarkRunner(private val context: Context) {
             transcript = engineOutput.transcript,
             segments = engineOutput.segments,
             verdict = BenchmarkTargets.verdict(metadata.durationMs, timing.totalMs),
-            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + comparisonWarnings,
+            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + preprocessingWarnings + comparisonWarnings,
             referenceComparison = referenceComparison
         )
     }
 }
+
+
+private fun formatSeconds(ms: Long): String = "%.2f s".format(java.util.Locale.GERMANY, ms / 1000.0)
+private fun formatPercent(value: Double): String = "%.1f%%".format(java.util.Locale.GERMANY, value)

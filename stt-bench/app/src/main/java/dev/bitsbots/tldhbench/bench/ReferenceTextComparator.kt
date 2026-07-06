@@ -12,6 +12,7 @@ object ReferenceTextComparator {
         val referenceWords = normalizeWords(rawReference)
         val hypothesisWords = normalizeWords(hypothesisText)
         val wordStats = wordEditStats(referenceWords, hypothesisWords)
+        val wordDiffs = wordAlignmentDiffs(referenceWords, hypothesisWords)
 
         val referenceChars = normalizeForCharacters(rawReference)
         val hypothesisChars = normalizeForCharacters(hypothesisText)
@@ -35,7 +36,8 @@ object ReferenceTextComparator {
             referenceCharCount = referenceChars.length,
             cerPercent = cer,
             qualityLabel = label,
-            summary = "WER ${fmt(wer)} · CER ${fmt(cer)} · S/I/D ${wordStats.substitutions}/${wordStats.insertions}/${wordStats.deletions} · $label"
+            summary = "WER ${fmt(wer)} · CER ${fmt(cer)} · S/I/D ${wordStats.substitutions}/${wordStats.insertions}/${wordStats.deletions} · $label",
+            wordDiffs = wordDiffs
         )
     }
 
@@ -99,6 +101,70 @@ object ReferenceTextComparator {
             }
         }
         return dp[reference.size][hypothesis.size]
+    }
+
+    private fun wordAlignmentDiffs(reference: List<String>, hypothesis: List<String>): List<WordDiff> {
+        val rows = reference.size + 1
+        val cols = hypothesis.size + 1
+        val distance = Array(rows) { IntArray(cols) }
+        for (i in 0 until rows) distance[i][0] = i
+        for (j in 0 until cols) distance[0][j] = j
+        for (i in 1 until rows) {
+            for (j in 1 until cols) {
+                val cost = if (reference[i - 1] == hypothesis[j - 1]) 0 else 1
+                distance[i][j] = min(
+                    min(distance[i - 1][j] + 1, distance[i][j - 1] + 1),
+                    distance[i - 1][j - 1] + cost
+                )
+            }
+        }
+
+        val reversed = mutableListOf<WordDiff>()
+        var i = reference.size
+        var j = hypothesis.size
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && reference[i - 1] == hypothesis[j - 1] && distance[i][j] == distance[i - 1][j - 1]) {
+                i -= 1
+                j -= 1
+                continue
+            }
+            if (i > 0 && j > 0 && distance[i][j] == distance[i - 1][j - 1] + 1) {
+                reversed += WordDiff(
+                    type = WordDiffType.SUBSTITUTE,
+                    referenceIndex = i,
+                    hypothesisIndex = j,
+                    referenceWord = reference[i - 1],
+                    hypothesisWord = hypothesis[j - 1]
+                )
+                i -= 1
+                j -= 1
+                continue
+            }
+            if (i > 0 && distance[i][j] == distance[i - 1][j] + 1) {
+                reversed += WordDiff(
+                    type = WordDiffType.DELETE,
+                    referenceIndex = i,
+                    hypothesisIndex = null,
+                    referenceWord = reference[i - 1],
+                    hypothesisWord = null
+                )
+                i -= 1
+                continue
+            }
+            if (j > 0 && distance[i][j] == distance[i][j - 1] + 1) {
+                reversed += WordDiff(
+                    type = WordDiffType.INSERT,
+                    referenceIndex = null,
+                    hypothesisIndex = j,
+                    referenceWord = null,
+                    hypothesisWord = hypothesis[j - 1]
+                )
+                j -= 1
+                continue
+            }
+            break
+        }
+        return reversed.asReversed()
     }
 
     private fun editDistance(a: String, b: String): Int {

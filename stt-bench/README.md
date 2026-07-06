@@ -2,9 +2,9 @@
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.2.7
+## Current release: 0.2.8
 
-Focus: Vosk multi-model testing with responsive section-based UI, restored benchmark updater, expanded built-in gold-standard corpus, true generated longform profiles, WER/CER comparison, batch reports, and Markdown export.
+Focus: Vosk multi-model testing with clear active-audio source tracking, responsive UI, restored benchmark updater, expanded gold-standard/longform tests, WER/CER/S-I-D deviation analysis, conservative non-speech reduction, batch reports, and Markdown export.
 
 ## Features
 
@@ -17,22 +17,22 @@ Focus: Vosk multi-model testing with responsive section-based UI, restored bench
 - One-tap corpus download inside the app.
 - Selecting a sample automatically sets audio input and reference text.
 - Optional manual reference text / gold-standard field remains available.
-- Automatic WER and CER calculation after each benchmark when a reference is provided.
-- Expandable reference vs. recognized transcript view.
+- Automatic WER/CER/S-I-D calculation after each benchmark when a reference is provided.
+- First-class deviation overview with total word errors, substitutions, insertions, deletions and first word-level diffs.
 - Last 5 benchmark runs stored locally inside the benchmark app.
 - Current run reset button; history reset remains separate.
 - Explicit dark theme/text-field colors so reference fields remain readable.
 - Section-based UI: Start, Modelle, Goldstandard, Benchmark, Ergebnisse, Updates.
-- Responsive full-width action buttons so labels do not shift or collapse on phone screens.
+- Responsive full-width action buttons so labels do not shift or collapse on phone screens, including the batch `20× Corpus` selector.
 - Generated longform WAV profiles: ~30 seconds, ~90 seconds, and ~4 minutes, each with an automatically built reference transcript.
 - Batch-benchmark all installed gold-standard samples with the active model.
 - Batch repeat profiles: 1×, 3×, 8×, 20× corpus repeats for aggregate model reports.
 - Benchmark-specific in-app updater for `stt-bench-vX.Y.Z` release APKs.
-- Copy single-run or batch results as Markdown for handover/comparison.
+- Copy single-run or batch results as Markdown for handover/comparison, including word-error and S/I/D metrics.
 
 ## Built-in gold-standard corpus
 
-The app can download a curated subset of `rhasspy/dataset-voice-kerstin` on demand. The dataset provides native German speech, transcripts via `metadata.csv`, and is CC0-licensed. v0.2.7 expands the pool beyond the original starter clips so realistic longform profiles can be generated from multiple real utterances.
+The app can download a curated subset of `rhasspy/dataset-voice-kerstin` on demand. The dataset provides native German speech, transcripts via `metadata.csv`, and is CC0-licensed. v0.2.8 expands the pool beyond the original starter clips so realistic longform profiles can be generated from multiple real utterances.
 
 The audio files are not bundled into the APK. They are downloaded on demand to keep the APK small and to keep the source transparent.
 
@@ -43,9 +43,18 @@ Either select a built-in sample or paste the correct transcript into the referen
 - WER: word error rate.
 - CER: character error rate.
 - Word substitutions / insertions / deletions.
+- First word-level differences, so the user can see which words were replaced, added or missed.
 - A rough label: very good, usable, critical, weak.
 
 This is intended for the built-in starter corpus, Common Voice, self-made WhatsApp gold-standard clips, or any audio where the correct transcript is known.
+
+## Shared audio readiness
+
+When an audio is shared from WhatsApp/Telegram into the benchmark app, the Benchmark section now shows it as an explicit external Android-share source. A new shared audio clears stale gold-standard/longform state and clears any previous reference text, so the next Einzelbenchmark uses the newly shared file. For own audios, WER/CER/S-I-D only appear when the correct transcript is manually pasted into the reference field before running the benchmark.
+
+## Non-speech reduction
+
+Before Vosk receives PCM, the app now performs a conservative local preprocessing pass: 16 kHz mono conversion, basic silence trimming and long-pause compression. If material was removed, the result warning states roughly how many seconds/percent were removed. The timing target still uses the original input duration, because product usefulness is measured against the user's actual voice-message length.
 
 ## Privacy
 

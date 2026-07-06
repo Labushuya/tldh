@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import dev.bitsbots.tldhbench.corpus.ReferenceCorpusManager
 import dev.bitsbots.tldhbench.corpus.ReferenceSample
+import dev.bitsbots.tldhbench.share.AudioSourceKind
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -117,7 +118,12 @@ class LongFormAudioComposer(
         ComposedLongFormAudio(
             profile = profile,
             file = outputWav,
-            sharedAudio = SharedAudio(uri = Uri.fromFile(outputWav), mimeType = "audio/wav"),
+            sharedAudio = SharedAudio(
+                uri = Uri.fromFile(outputWav),
+                mimeType = "audio/wav",
+                sourceKind = AudioSourceKind.GENERATED_LONGFORM,
+                displayName = "${profile.title} Longform WAV"
+            ),
             referenceText = used.joinToString(separator = " ") { it.referenceText.trim() },
             usedSampleCount = used.size,
             actualDurationMs = actualMs

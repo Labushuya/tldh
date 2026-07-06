@@ -104,6 +104,20 @@ data class BenchmarkVerdict(
     val message: String
 )
 
+enum class WordDiffType {
+    SUBSTITUTE,
+    INSERT,
+    DELETE
+}
+
+data class WordDiff(
+    val type: WordDiffType,
+    val referenceIndex: Int?,
+    val hypothesisIndex: Int?,
+    val referenceWord: String?,
+    val hypothesisWord: String?
+)
+
 data class ReferenceComparison(
     val referenceRaw: String,
     val hypothesisRaw: String,
@@ -118,7 +132,8 @@ data class ReferenceComparison(
     val referenceCharCount: Int,
     val cerPercent: Double,
     val qualityLabel: String,
-    val summary: String
+    val summary: String,
+    val wordDiffs: List<WordDiff> = emptyList()
 )
 
 data class BenchmarkResult(
