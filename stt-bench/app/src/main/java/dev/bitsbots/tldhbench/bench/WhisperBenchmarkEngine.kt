@@ -23,7 +23,7 @@ internal data class WhisperEngineOutput(
  * That keeps WER/CER comparisons fair and makes Vosk vs. Whisper reports comparable.
  */
 internal class WhisperBenchmarkEngine {
-    fun transcribe(
+    suspend fun transcribe(
         modelFile: File,
         pcm: PreparedPcmAudio,
         decodeMs: Long,
