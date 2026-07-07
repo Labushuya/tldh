@@ -62,6 +62,11 @@ import androidx.compose.ui.unit.sp
 import dev.bitsbots.tldhbench.BuildConfig
 import dev.bitsbots.tldhbench.bench.BenchmarkResult
 import dev.bitsbots.tldhbench.bench.BenchmarkRunner
+import dev.bitsbots.tldhbench.bench.IntegrationDecisionLevel
+import dev.bitsbots.tldhbench.bench.IntegrationReadiness
+import dev.bitsbots.tldhbench.bench.SttEngineCatalog
+import dev.bitsbots.tldhbench.bench.SttEngineReadiness
+import dev.bitsbots.tldhbench.bench.SttEngineSpec
 import dev.bitsbots.tldhbench.bench.Signal
 import dev.bitsbots.tldhbench.bench.VoskModelCatalog
 import dev.bitsbots.tldhbench.bench.VoskModelSpec
@@ -326,10 +331,16 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 when (selectedSection) {
                     BenchSection.Start -> StartSection(
                         appVersion = BuildConfig.VERSION_NAME,
+                        onGoEngines = { selectedSection = BenchSection.Engines },
                         onGoModels = { selectedSection = BenchSection.Models },
                         onGoCorpus = { selectedSection = BenchSection.Corpus },
                         onGoRun = { selectedSection = BenchSection.Run },
                         onGoUpdates = { selectedSection = BenchSection.Updates }
+                    )
+
+                    BenchSection.Engines -> EnginesSection(
+                        onGoModels = { selectedSection = BenchSection.Models },
+                        onGoRun = { selectedSection = BenchSection.Run }
                     )
 
                     BenchSection.Models -> ModelsSection(
@@ -356,6 +367,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     .onFailure {
                                         busyLabel = null
                                         error = "Modell-Download/Installation fehlgeschlagen (${spec.displayName}): ${it.message}"
+                                        installedIds = modelManager.installedIds()
                                         selectedSection = BenchSection.Results
                                     }
                             }
@@ -364,7 +376,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                             scope.launch {
                                 error = null
                                 result = null
-                                busyLabel = "Lösche ${spec.displayName}…"
+                                busyLabel = if (installedIds.contains(spec.id)) "Lösche ${spec.displayName}…" else "Bereinige ${spec.displayName}…"
                                 runCatching { modelManager.delete(spec) }
                                     .onSuccess {
                                         installedIds = modelManager.installedIds()
@@ -535,6 +547,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
 
 private enum class BenchSection(val label: String) {
     Start("Start"),
+    Engines("Engines"),
     Models("Modelle"),
     Corpus("Goldstandard"),
     Run("Benchmark"),
@@ -621,6 +634,7 @@ private fun ActiveSetupCard(
 @Composable
 private fun StartSection(
     appVersion: String,
+    onGoEngines: () -> Unit,
     onGoModels: () -> Unit,
     onGoCorpus: () -> Unit,
     onGoRun: () -> Unit,
@@ -629,20 +643,21 @@ private fun StartSection(
     CardBlock(title = "Geführter Ablauf") {
         Text("Version v$appVersion · separater STT-Benchmark. Die Haupt-App tl;dh bleibt unberührt.", color = TextMuted, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
-        StepText("1", "Modell installieren oder wechseln", "Small DE fürs Handy, Big DE als Qualitäts-/Stressprobe.")
-        StepText("2", "Goldstandard laden", "Starter-Korpus plus Langlauf-Batch für längere Messstrecken.")
-        StepText("3", "Benchmark starten", "Einzeltest oder Batch laufen lassen; Ergebnis öffnet danach im Ergebnisbereich.")
-        StepText("4", "Report kopieren", "Markdown-Report für Vergleich und nächste Modellentscheidung.")
+        StepText("1", "Engine-Strategie prüfen", "Vosk ist die aktive Baseline; whisper.cpp, sherpa-onnx und LAN/Tower sind als nächste Vergleichspfade sichtbar.")
+        StepText("2", "Vosk-Modell installieren oder wechseln", "Small DE fürs Handy, Big DE als Qualitäts-/Stressprobe.")
+        StepText("3", "Goldstandard oder eigene Shared-Audio nutzen", "Für Wortabweichungen braucht die App immer ein korrektes Referenztranskript.")
+        StepText("4", "Benchmark starten und Produktentscheidung lesen", "Ergebnis zeigt jetzt zusätzlich, ob diese Engine/Modell-Kombination tl;dh-tauglich wäre.")
         Spacer(Modifier.height(10.dp))
         ActionStack {
+            PrimaryActionButton("Engine-Strategie", onGoEngines)
             PrimaryActionButton("Modelle", onGoModels)
             PrimaryActionButton("Goldstandard", onGoCorpus)
             SecondaryActionButton("Benchmark", onGoRun)
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "Was wurde am UI geändert?") {
-        Text("Die App nutzt jetzt getrennte Bereiche statt einem langen Endlos-Scroll. Nach Einzel- oder Batchlauf springt sie logisch in den Ergebnisbereich; der Scroll startet dort oben.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.3.0 Fokus") {
+        Text("Diese Version startet die Engine-Schicht: Vosk bleibt die aktive Baseline, weitere Engines werden als Kandidaten geführt und Ergebnisse werden zusätzlich auf Produktreife für tl;dh bewertet.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -663,6 +678,62 @@ private fun StepText(number: String, title: String, body: String) {
 }
 
 @Composable
+private fun EnginesSection(
+    onGoModels: () -> Unit,
+    onGoRun: () -> Unit
+) {
+    CardBlock(title = "Engine-Schicht / Kandidaten") {
+        Text(
+            "Vosk bleibt die aktive Baseline. v0.3.0 macht die nächsten STT-Pfade bewusst sichtbar, damit spätere Messungen dieselben Audios, Referenzen und Kriterien nutzen.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        SttEngineCatalog.engines.forEach { engine ->
+            EngineCandidateCard(engine)
+            Spacer(Modifier.height(10.dp))
+        }
+        ActionStack {
+            PrimaryActionButton("Vosk-Modelle öffnen", onGoModels)
+            SecondaryActionButton("Zum Benchmark", onGoRun)
+        }
+    }
+    CardBlock(title = "Messlatte für tl;dh") {
+        Text("Produktintegration erst bei echten Audios mit Referenztext. Ziel: deutlich unter 25 % WER; ideal eher <= 15 % WER, geringe Deletions und RTF <= 1,0.", color = TextMuted, lineHeight = 20.sp)
+        Text("Vosk Small/Big lagen in Deinem Realtest bei ca. 40–47 % WER. Damit: gute Speed-Baseline, aber noch kein sicherer Summary-Unterbau.", color = Warn, lineHeight = 20.sp)
+    }
+}
+
+@Composable
+private fun EngineCandidateCard(engine: SttEngineSpec) {
+    val color = when (engine.readiness) {
+        SttEngineReadiness.ACTIVE -> Good
+        SttEngineReadiness.NEXT_CANDIDATE -> Accent2
+        SttEngineReadiness.PLANNED -> Warn
+        SttEngineReadiness.EXTERNAL -> TextMain
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(engine.displayName, color = TextMain, fontWeight = FontWeight.Bold)
+                Text(engine.localMode, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            Text(engine.shortLabel, color = color, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+        }
+        Text("Stärke: ${engine.expectedStrength}", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Text("Risiko: ${engine.expectedRisk}", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Text("Nächster Schritt: ${engine.nextStep}", color = color, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+@Composable
 private fun ModelsSection(
     selectedModel: VoskModelSpec,
     installedIds: Set<String>,
@@ -674,6 +745,7 @@ private fun ModelsSection(
 ) {
     CardBlock(title = "Vosk Modelle") {
         Text("Installieren, auswählen, danach ohne App-Neustart benchmarken. Ampel: Geschwindigkeit / Genauigkeit / Handy-Eignung.", color = TextMuted, lineHeight = 20.sp)
+        Text("Wenn ein Download beim Entpacken abbricht, nutze beim betroffenen Modell zuerst 'Lokale Reste bereinigen' und starte danach den Download neu.", color = TextMuted, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
         VoskModelCatalog.models.forEach { spec ->
             ModelCard(
@@ -1061,7 +1133,7 @@ private fun ActionStack(content: @Composable ColumnScope.() -> Unit) {
 private fun Header() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("tl;dh STT Bench", color = TextMain, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Text("Vosk-Modellvergleich: Speed vs. Deutsch-Qualität.", color = TextMuted)
+        Text("Engine-Vergleich: Speed vs. Deutsch-Qualität.", color = TextMuted)
     }
 }
 
@@ -1485,9 +1557,7 @@ private fun ModelCard(
         if (spec.deviceSignal == Signal.RED) Text("Crash-Guard: Download erlaubt, Benchmark auf Android blockiert.", color = Bad, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
             PrimaryActionButton(if (installed) "Neu laden" else "Download", onDownload, enabled = !busy)
-            if (installed) {
-                SecondaryActionButton("Löschen", onDelete, enabled = !busy)
-            }
+            SecondaryActionButton(if (installed) "Löschen" else "Lokale Reste bereinigen", onDelete, enabled = !busy)
         }
         if (busyLabel?.contains(spec.displayName) == true) Text("$busyLabel $progress%", color = TextMuted)
     }
@@ -1591,6 +1661,30 @@ private fun formatWordDiff(diff: dev.bitsbots.tldhbench.bench.WordDiff): String 
 
 
 @Composable
+private fun IntegrationDecisionBlock(result: BenchmarkResult) {
+    val decision = IntegrationReadiness.evaluate(result)
+    val color = when (decision.level) {
+        IntegrationDecisionLevel.PASS -> Good
+        IntegrationDecisionLevel.GUARDED -> Warn
+        IntegrationDecisionLevel.BLOCKED -> Bad
+        IntegrationDecisionLevel.UNKNOWN -> TextMuted
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(16.dp))
+            .border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text("tl;dh-Produktentscheidung", color = TextMain, fontWeight = FontWeight.Bold)
+        Text(decision.title, color = color, fontWeight = FontWeight.SemiBold)
+        Text(decision.message, color = TextMuted, lineHeight = 19.sp)
+        Text(decision.details, color = color, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+@Composable
 private fun NoReferenceComparisonBlock() {
     Column(
         Modifier
@@ -1636,6 +1730,7 @@ private fun ResultCard(result: BenchmarkResult, onReset: () -> Unit, onCopyRepor
             Text("Gesamt: ${fmtMs(result.timing.totalMs)} · Audio: ${fmtMs(result.timing.audioDurationMs)} · RTF: ${result.timing.rtf?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}", color = TextMain)
             Text("Decode: ${fmtMs(result.timing.decodeMs)} · Modell: ${fmtMs(result.timing.modelLoadMs)} · STT: ${fmtMs(result.timing.sttMs)}", color = TextMuted)
 
+            IntegrationDecisionBlock(result)
             result.referenceComparison?.let { ReferenceComparisonBlock(it) } ?: NoReferenceComparisonBlock()
 
             if (result.warnings.isNotEmpty()) {
@@ -1774,6 +1869,9 @@ private fun BenchmarkResult.toMarkdown(): String {
     lines += "- STT: ${fmtMs(timing.sttMs)}"
     lines += "- RTF: ${timing.rtf?.let { fmtNumber(it) } ?: "n/a"}"
     lines += "- Verdict: ${verdict.message}"
+    IntegrationReadiness.evaluate(this).let { decision ->
+        lines += "- Produktentscheidung: ${decision.title} — ${decision.message}"
+    }
     referenceComparison?.let { comparison ->
         lines += "- Referenzvergleich: ${comparison.summary}"
         lines += "- Wortfehler: ${comparison.wordDistance} von ${comparison.referenceWordCount}; S/I/D ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}"

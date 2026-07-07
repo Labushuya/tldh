@@ -54,3 +54,15 @@ The app is split into sections instead of one long scroll stack. The active-audi
 ## Android crash guard
 
 `Big DE TUDA 0.6` is intentionally blocked for on-device Android execution in this benchmark build. The model is extremely large and can terminate the app at native Vosk model-load time before Kotlin error handling can show a clean failure. Treat it as a later Tower/LAN quality-mode candidate.
+
+
+## v0.3.0 engine comparison policy
+
+Vosk remains the active executable baseline. Do not integrate Vosk into the main tl;dh app as an automatic TL;DR source until real-audio WER is much lower. The next benchmark milestone is to add whisper.cpp as a second executable engine and run the same gold-standard and real WhatsApp audios against the same reference transcripts.
+
+Product-readiness thresholds used by the app:
+
+- <= 15% WER and low deletion risk: product candidate.
+- <= 25% WER and RTF <= 1.0: only with visible guardrails and full transcript review.
+- > 25-35% WER: preview-only / not enough for automatic TL;DR.
+- High deletion count: risky even if CER looks acceptable, because missing negations, times, names or numbers can invert meaning.

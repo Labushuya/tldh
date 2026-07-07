@@ -28,8 +28,12 @@ class VoskModelManager(private val context: Context) {
         modelsRoot.mkdirs()
         val targetDir = File(modelsRoot, spec.directoryName)
         val tempZip = File(context.cacheDir, "${spec.id}.zip")
-        targetDir.deleteRecursively()
-        tempZip.delete()
+
+        // Always clear previous partial state first. This is important for models whose
+        // previous installation failed validation, because they otherwise cannot be
+        // removed through the old "installed only" delete button.
+        deleteLocalArtifacts(spec)
+
         download(spec.url, tempZip, onProgress)
         unzip(tempZip, modelsRoot)
         tempZip.delete()
@@ -40,26 +44,43 @@ class VoskModelManager(private val context: Context) {
         if (resolved == null) {
             val diagnostics = modelDiagnostics(spec)
             throw IllegalStateException(
-                "Vosk-Modell wurde entpackt, aber kein gültiges Vosk-Modellverzeichnis für ${spec.directoryName} gefunden. $diagnostics"
+                "Vosk-Modell wurde entpackt, aber kein plausibles Vosk-Modellverzeichnis für ${spec.directoryName} gefunden. " +
+                    "$diagnostics Nutze im Modelle-Tab 'Lokale Reste bereinigen' und lade danach erneut."
             )
         }
         resolved
     }
 
     suspend fun delete(spec: VoskModelSpec): Unit = withContext(Dispatchers.IO) {
+        deleteLocalArtifacts(spec)
+    }
+
+    private fun deleteLocalArtifacts(spec: VoskModelSpec) {
         File(modelsRoot, spec.directoryName).deleteRecursively()
+        File(modelsRoot, "${spec.directoryName}.normalized").deleteRecursively()
         File(context.cacheDir, "${spec.id}.zip").delete()
     }
 
     private fun locateUsableModelDir(spec: VoskModelSpec): File? {
         val target = File(modelsRoot, spec.directoryName)
         if (isUsableVoskModelDir(target)) return target
-        if (!target.exists()) return null
-        return target
-            .walkTopDown()
-            .maxDepth(6)
-            .filter { it.isDirectory && isUsableVoskModelDir(it) }
-            .minByOrNull { it.absolutePath.length }
+        if (target.exists()) {
+            target.walkTopDown()
+                .maxDepth(7)
+                .filter { it.isDirectory && isUsableVoskModelDir(it) }
+                .minByOrNull { it.absolutePath.length }
+                ?.let { return it }
+        }
+
+        // Defensive fallback for archives that do not unpack exactly into the documented
+        // directory name. Keep this constrained to name matches to avoid accidentally
+        // resolving another already-installed German model.
+        return modelsRoot.listFiles()
+            ?.asSequence()
+            ?.filter { it.isDirectory && (it.name == spec.directoryName || it.name.contains(spec.directoryName, ignoreCase = true)) }
+            ?.flatMap { root -> root.walkTopDown().maxDepth(7).filter { it.isDirectory }.asSequence() }
+            ?.filter { isUsableVoskModelDir(it) }
+            ?.minByOrNull { it.absolutePath.length }
     }
 
     private fun normalizeExtractedModel(spec: VoskModelSpec, targetDir: File) {
@@ -78,11 +99,28 @@ class VoskModelManager(private val context: Context) {
 
     private fun isUsableVoskModelDir(dir: File): Boolean {
         if (!dir.isDirectory) return false
-        val hasAm = File(dir, "am/final.mdl").isFile
-        val hasConf = File(dir, "conf/mfcc.conf").isFile || File(dir, "conf/model.conf").isFile
-        val hasGraph = File(dir, "graph/HCLG.fst").isFile ||
-            (File(dir, "graph/HCLr.fst").isFile && File(dir, "graph/Gr.fst").isFile)
-        return hasAm && hasConf && hasGraph
+
+        // The official models are Vosk-compatible, but older/repackaged models can differ
+        // slightly in layout. Do not reject a model only because one exact marker path is
+        // different; let the Vosk native Model loader be the final authority at benchmark time.
+        val hasAcousticModel = File(dir, "am/final.mdl").isFile ||
+            File(dir, "final.mdl").isFile ||
+            dir.walkTopDown().maxDepth(4).any { it.isFile && it.name == "final.mdl" }
+
+        val graphDir = File(dir, "graph")
+        val hasGraph = File(graphDir, "HCLG.fst").isFile ||
+            (File(graphDir, "HCLr.fst").isFile && File(graphDir, "Gr.fst").isFile) ||
+            graphDir.isDirectory ||
+            dir.walkTopDown().maxDepth(5).any { it.isFile && (it.name == "HCLG.fst" || it.name == "HCLr.fst" || it.name == "Gr.fst") }
+
+        val confDir = File(dir, "conf")
+        val hasConfig = File(confDir, "mfcc.conf").isFile ||
+            File(confDir, "model.conf").isFile ||
+            File(dir, "mfcc.conf").isFile ||
+            File(dir, "model.conf").isFile ||
+            confDir.isDirectory
+
+        return hasAcousticModel && hasGraph && hasConfig
     }
 
     private fun modelDiagnostics(spec: VoskModelSpec): String {
@@ -90,22 +128,31 @@ class VoskModelManager(private val context: Context) {
         val candidates = modelsRoot.listFiles()
             ?.filter { it.isDirectory }
             ?.joinToString { root ->
-                val direct = listOf("am/final.mdl", "conf/mfcc.conf", "conf/model.conf", "graph/HCLG.fst")
-                    .filter { File(root, it).exists() }
+                val markers = listOf(
+                    "am/final.mdl",
+                    "final.mdl",
+                    "conf/mfcc.conf",
+                    "conf/model.conf",
+                    "mfcc.conf",
+                    "model.conf",
+                    "graph/HCLG.fst",
+                    "graph/HCLr.fst",
+                    "graph/Gr.fst"
+                ).filter { File(root, it).exists() }
                     .joinToString(prefix = "[", postfix = "]")
-                "${root.name}$direct"
+                "${root.name}$markers"
             }
             .orEmpty()
         val nested = if (target.exists()) {
             target.walkTopDown()
                 .maxDepth(3)
                 .filter { it.isDirectory }
-                .take(20)
+                .take(24)
                 .joinToString { it.relativeTo(target).path.ifBlank { "." } }
         } else {
             "Zielordner fehlt"
         }
-        return "Gefundene Modellordner: $candidates. Unterordner in Zielstruktur: $nested"
+        return "Gefundene Modellordner: $candidates. Unterordner in Zielstruktur: $nested."
     }
 
     private fun download(url: String, target: File, onProgress: (Int) -> Unit) {

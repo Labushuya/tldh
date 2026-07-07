@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.1 - Zamia cleanup and permissive model validation
+
+### Fixed
+- Add a visible per-model cleanup action even when a model is not considered installed, so failed/partial downloads like `Small DE Zamia 0.3` can be removed without app-data reset.
+- Clear previous partial ZIP/model state before every model download to avoid stale failed extraction state.
+- Relax the local Vosk model directory validation for older/repackaged models. The app now accepts plausible Vosk layouts and lets the native Vosk loader be the final authority during benchmark startup.
+- Improve failed-install diagnostics and explicitly point the user to local cleanup before retrying.
+
+### Changed
+- Release tag moves to `stt-bench-v0.3.1`.
+- Workflow and Gradle version defaults move to `0.3.1` / versionCode `301`.
+
+## 0.3.0 - Engine strategy layer and tl;dh readiness verdict
+
+### Added
+- New Engine section with the explicit STT roadmap: active Vosk baseline, next whisper.cpp candidate, planned sherpa-onnx candidate, and later LAN/Tower Quality Mode.
+- Engine candidate cards document local mode, expected strength, expected risk, and next implementation step.
+- Result UI now adds a tl;dh product-readiness decision for each benchmark result: product candidate, guardrails only, blocked, or not measurable.
+- Single-run Markdown reports now include the product-readiness decision so real WhatsApp tests can be compared across engines later.
+
+### Changed
+- Header and onboarding now speak about engine comparison instead of only Vosk model comparison.
+- Release tag moves to `stt-bench-v0.3.0`.
+- Workflow and Gradle version defaults move to `0.3.0` / versionCode `300`.
+
 ## 0.2.9 - Safe-area UI, Zamia install hardening, longform target class
 
 ### Fixed
