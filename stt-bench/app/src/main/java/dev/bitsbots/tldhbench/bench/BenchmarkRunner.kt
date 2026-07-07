@@ -85,7 +85,7 @@ class BenchmarkRunner(private val context: Context) {
         val decodeMs = measureTimeMillis {
             prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
         }
-        val engineOutput = WhisperBenchmarkEngine().transcribe(
+        val engineOutput = WhisperBenchmarkEngine(context).transcribe(
             modelFile = whisperModelManager.modelFile(modelSpec),
             pcm = prepared,
             decodeMs = decodeMs,

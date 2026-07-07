@@ -1,3 +1,13 @@
+# v0.3.7 — Whisper German Lock
+
+- Whisper-Engine von `mx.valdora:whisper-android` auf `dev.ffmpegkit-maintained:whisper-android:1.0.0` umgestellt.
+- Whisper-Transkription erzwingt jetzt Deutsch via `WhisperConfig(language = "de")`.
+- Alte v0.3.4–v0.3.6-Whisper-Werte sind nicht mehr als Qualitätsvergleich zu verwenden, wenn native Logs nicht-deutsche Erkennung zeigten.
+- Vosk-Dependency bleibt auf der funktionierenden `com.alphacephei:vosk-android:0.3.47`.
+- Release: `stt-bench-v0.3.7`, APK: `tldh-stt-bench-0.3.7.apk`.
+
+---
+
 # Changelog
 
 ## 0.3.6 - installable engine-specific model tab

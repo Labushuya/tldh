@@ -5,10 +5,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.3.6"
+    ?: "0.3.7"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "306").toInt()
+    ?: "307").toInt()
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 val githubRepositoryRaw = (findProperty("GITHUB_REPOSITORY") as String?)
@@ -92,8 +92,8 @@ dependencies {
     // First real German/offline mobile STT candidate.
     implementation("com.alphacephei:vosk-android:0.3.47")
 
-    // Second offline candidate: Android wrapper around whisper.cpp.
-    implementation("mx.valdora:whisper-android:1.0.0")
+    // Second offline candidate: Android whisper.cpp wrapper with explicit language control.
+    implementation("dev.ffmpegkit-maintained:whisper-android:1.0.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

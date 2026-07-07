@@ -1,8 +1,11 @@
 package dev.bitsbots.tldhbench.bench
 
+import android.content.Context
 import dev.bitsbots.tldhbench.audio.PcmWavWriter
 import dev.bitsbots.tldhbench.audio.PreparedPcmAudio
-import mx.valdora.whisper.WhisperContext
+import dev.ffmpegkit.whisper.Whisper
+import dev.ffmpegkit.whisper.WhisperConfig
+import dev.ffmpegkit.whisper.WhisperModel
 import java.io.File
 import kotlin.system.measureTimeMillis
 
@@ -16,13 +19,17 @@ internal data class WhisperEngineOutput(
 )
 
 /**
- * First executable whisper.cpp runner for the benchmark app.
+ * Executable whisper.cpp runner with explicit German transcription lock.
  *
- * It intentionally reuses the same app-side decode/preprocessing path as Vosk:
- * Android media input -> 16 kHz mono PCM -> WAV container -> whisper.cpp wrapper.
- * That keeps WER/CER comparisons fair and makes Vosk vs. Whisper reports comparable.
+ * v0.3.4-v0.3.6 used a minimal wrapper whose public API exposed only transcribe(audioFile)
+ * and could not force the recognition language. On German WhatsApp audio this made results
+ * look like Whisper quality was terrible, while native logs showed non-German decoding.
+ *
+ * v0.3.7 switches to an Android whisper.cpp wrapper that exposes WhisperConfig(language = "de").
+ * The app still uses the same app-side decode/preprocessing path as Vosk:
+ * Android media input -> 16 kHz mono PCM -> WAV container -> whisper.cpp.
  */
-internal class WhisperBenchmarkEngine {
+internal class WhisperBenchmarkEngine(private val context: Context) {
     suspend fun transcribe(
         modelFile: File,
         pcm: PreparedPcmAudio,
@@ -39,29 +46,49 @@ internal class WhisperBenchmarkEngine {
             sampleRate = pcm.sampleRate
         )
 
-        var context: WhisperContext? = null
+        var model: WhisperModel? = null
         var transcript = ""
+        var segments = emptyList<TranscriptSegment>()
         var modelLoadMs = 0L
         val sttMs = try {
             modelLoadMs = measureTimeMillis {
-                context = WhisperContext(modelFile.absolutePath)
+                model = Whisper.loadModel(context, modelFile.absolutePath)
             }
             measureTimeMillis {
-                transcript = context?.transcribe(wavFile).orEmpty().trim()
+                val result = Whisper.transcribe(
+                    model ?: error("Whisper-Modell wurde nicht geladen."),
+                    wavFile.absolutePath,
+                    WhisperConfig(language = "de")
+                )
+                transcript = result.text.trim()
+                segments = result.segments.mapNotNull { segment ->
+                    val text = segment.text.trim()
+                    if (text.isBlank()) {
+                        null
+                    } else {
+                        TranscriptSegment(
+                            startSec = segment.startMs / 1000.0,
+                            endSec = segment.endMs / 1000.0,
+                            text = text,
+                            words = emptyList()
+                        )
+                    }
+                }
             }
         } finally {
-            runCatching { context?.close() }
+            model?.let { runCatching { Whisper.releaseModel(it) } }
         }
 
         val warnings = buildList {
-            add("whisper.cpp Erstintegration: Transkription läuft lokal/offline über den Android whisper.cpp Wrapper. Bitte tiny/base/small gegen dieselbe Real-Audio vergleichen, bevor tl;dh daraus Produktentscheidungen ableitet.")
-            add("Dieser Whisper-Pfad liefert aktuell nur Gesamttranskript ohne Wort-/Segment-Zeitstempel. WER/CER/S/I/D funktionieren mit Referenztext trotzdem.")
+            add("whisper.cpp Deutsch-Lock aktiv: dieser Lauf nutzt WhisperConfig(language = \"de\") und darf wieder gegen Vosk verglichen werden.")
+            add("Der alte Whisper-Wrapper aus v0.3.4-v0.3.6 ist entfernt, weil er keine Sprachvorgabe exponiert hat und die nativen Logs auf nicht-deutsche Transkription hindeuteten.")
+            add("Whisper liefert hier Segment-Zeitstempel, aber keine Wort-Confidence. WER/CER/S/I/D funktionieren mit Referenztext trotzdem.")
             if (decodeMs > 10_000L) add("Decode dauerte auffällig lange (${formatSecondsLocal(decodeMs)}). Audioformat oder Gerätelast prüfen.")
         }
 
         return WhisperEngineOutput(
             transcript = transcript,
-            segments = emptyList(),
+            segments = segments,
             modelLoadMs = modelLoadMs,
             sttMs = sttMs,
             totalMs = System.currentTimeMillis() - totalStartedAtMs,
