@@ -141,6 +141,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
     var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
     var selectedWhisperModel by remember { mutableStateOf(WhisperModelCatalog.defaultModel) }
+    var activeEngineId by remember { mutableStateOf("vosk") }
+    var whisperBusyModelId by remember { mutableStateOf<String?>(null) }
     var installedWhisperIds by remember { mutableStateOf(whisperModelManager.installedIds()) }
     var installedSampleIds by remember { mutableStateOf(corpusManager.installedIds()) }
     var selectedSample by remember { mutableStateOf<ReferenceSample?>(null) }
@@ -212,6 +214,11 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
 
     fun runSingleBenchmark() {
         val audio = sharedAudioState.value ?: return
+        if (activeEngineId == "whisper-cpp") {
+            error = "whisper.cpp ist als aktive Engine vorgemerkt (${selectedWhisperModel.displayName}), aber die Native/JNI-Transkription ist in diesem Build noch nicht aktiviert. Nächster Schritt: echter whisper.cpp-Benchmark gegen dieselbe Audio-/Referenz-Pipeline."
+            selectedSection = BenchSection.Results
+            return
+        }
         scope.launch {
             error = null
             result = null
@@ -235,6 +242,11 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     }
 
     fun runBatchBenchmark() {
+        if (activeEngineId == "whisper-cpp") {
+            error = "Batch mit whisper.cpp ist erst nach Aktivierung der Native/JNI-Transkription möglich. Aktuell ist nur Vosk ausführbar."
+            selectedSection = BenchSection.Results
+            return
+        }
         val baseSamples = BuiltInReferenceCorpus.samples.filter { installedSampleIds.contains(it.id) }
         if (baseSamples.isEmpty()) {
             error = "Batch nicht möglich: Lade zuerst mindestens ein Goldstandard-Testaudio."
@@ -321,8 +333,11 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             ) {
                 Header()
                 ActiveSetupCard(
+                    activeEngineId = activeEngineId,
                     selectedModel = selectedModel,
                     modelInstalled = installedIds.contains(selectedModel.id),
+                    selectedWhisperModel = selectedWhisperModel,
+                    whisperModelInstalled = installedWhisperIds.contains(selectedWhisperModel.id),
                     selectedSample = selectedSample,
                     selectedLongFormLabel = selectedLongFormLabel,
                     sharedAudio = sharedAudioState.value,
@@ -345,25 +360,45 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     )
 
                     BenchSection.Engines -> EnginesSection(
+                        activeEngineId = activeEngineId,
                         selectedWhisperModel = selectedWhisperModel,
                         installedWhisperIds = installedWhisperIds,
+                        whisperBusyModelId = whisperBusyModelId,
                         busyLabel = busyLabel,
                         progress = progress,
-                        onSelectWhisper = { selectedWhisperModel = it },
+                        onActivateEngine = { engineId ->
+                            if (engineId == "whisper-cpp" && installedWhisperIds.isEmpty()) {
+                                error = "whisper.cpp kann erst aktiv gesetzt werden, wenn mindestens ein Whisper-Modell geladen ist."
+                                selectedSection = BenchSection.Results
+                            } else {
+                                activeEngineId = engineId
+                                result = null
+                                error = null
+                            }
+                        },
+                        onSelectWhisper = {
+                            selectedWhisperModel = it
+                            if (installedWhisperIds.contains(it.id)) activeEngineId = "whisper-cpp"
+                        },
                         onDownloadWhisper = { spec ->
                             scope.launch {
                                 error = null
                                 result = null
-                                busyLabel = "Download Whisper ${spec.displayName}…"
+                                whisperBusyModelId = spec.id
+                                busyLabel = "Download ${spec.displayName}…"
                                 progress = 0
                                 runCatching { whisperModelManager.download(spec) { progress = it } }
                                     .onSuccess {
                                         installedWhisperIds = whisperModelManager.installedIds()
+                                        selectedWhisperModel = spec
+                                        activeEngineId = "whisper-cpp"
                                         busyLabel = null
+                                        whisperBusyModelId = null
                                         progress = 100
                                     }
                                     .onFailure {
                                         busyLabel = null
+                                        whisperBusyModelId = null
                                         error = "Whisper-Modell-Download fehlgeschlagen (${spec.displayName}): ${it.message}"
                                         selectedSection = BenchSection.Results
                                     }
@@ -372,14 +407,22 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         onDeleteWhisper = { spec ->
                             scope.launch {
                                 error = null
+                                whisperBusyModelId = spec.id
                                 busyLabel = "Lösche ${spec.displayName}…"
                                 runCatching { whisperModelManager.delete(spec) }
                                     .onSuccess {
-                                        installedWhisperIds = whisperModelManager.installedIds()
+                                        val newInstalledIds = whisperModelManager.installedIds()
+                                        installedWhisperIds = newInstalledIds
+                                        if (spec.id == selectedWhisperModel.id && newInstalledIds.isNotEmpty()) {
+                                            selectedWhisperModel = WhisperModelCatalog.byId(newInstalledIds.first())
+                                        }
+                                        if (newInstalledIds.isEmpty() && activeEngineId == "whisper-cpp") activeEngineId = "vosk"
                                         busyLabel = null
+                                        whisperBusyModelId = null
                                     }
                                     .onFailure {
                                         busyLabel = null
+                                        whisperBusyModelId = null
                                         error = "Whisper-Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
                                         selectedSection = BenchSection.Results
                                     }
@@ -530,8 +573,11 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
 
                     BenchSection.Run -> RunSection(
                         sharedAudio = sharedAudioState.value,
+                        activeEngineId = activeEngineId,
                         selectedModel = selectedModel,
                         selectedModelInstalled = installedIds.contains(selectedModel.id),
+                        selectedWhisperModel = selectedWhisperModel,
+                        selectedWhisperModelInstalled = installedWhisperIds.contains(selectedWhisperModel.id),
                         selectedSample = selectedSample,
                         selectedLongFormLabel = selectedLongFormLabel,
                         referenceText = referenceText,
@@ -642,8 +688,11 @@ private fun SectionNav(selected: BenchSection, onSelect: (BenchSection) -> Unit)
 
 @Composable
 private fun ActiveSetupCard(
+    activeEngineId: String,
     selectedModel: VoskModelSpec,
     modelInstalled: Boolean,
+    selectedWhisperModel: WhisperModelSpec,
+    whisperModelInstalled: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     sharedAudio: SharedAudio?,
@@ -658,7 +707,11 @@ private fun ActiveSetupCard(
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Aktueller Prüfstand", color = TextMain, fontWeight = FontWeight.Bold)
-                    Text("Modell: ${selectedModel.displayName}", color = if (modelInstalled) Good else Warn, lineHeight = 18.sp)
+                    val engineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
+                    val modelLabel = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+                    val modelReady = if (activeEngineId == "whisper-cpp") whisperModelInstalled else modelInstalled
+                    Text("Engine: $engineLabel", color = if (activeEngineId == "whisper-cpp") Accent2 else Good, lineHeight = 18.sp)
+                    Text("Modell: $modelLabel", color = if (modelReady) Good else Warn, lineHeight = 18.sp)
                     Text("Quelle: ${activeAudioSourceLabel(sharedAudio)}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
                     Text("Audio: ${activeAudioTitle(sharedAudio, selectedSample, selectedLongFormLabel)}", color = if (sharedAudio != null) TextMain else TextMuted, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -689,7 +742,7 @@ private fun StartSection(
     CardBlock(title = "Geführter Ablauf") {
         Text("Version v$appVersion · separater STT-Benchmark. Die Haupt-App tl;dh bleibt unberührt.", color = TextMuted, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
-        StepText("1", "Engine-Strategie prüfen", "Vosk ist die aktive Baseline; whisper.cpp kann jetzt als Modell-/Speicher-Preflight vorbereitet werden.")
+        StepText("1", "Engine-Strategie prüfen", "Vosk ist die ausführbare Baseline; whisper.cpp kann nach Modell-Download als aktive Ziel-Engine vorgemerkt werden.")
         StepText("2", "Vosk-Modell installieren oder wechseln", "Small DE fürs Handy, Big DE als Qualitäts-/Stressprobe.")
         StepText("3", "Goldstandard oder eigene Shared-Audio nutzen", "Für Wortabweichungen braucht die App immer ein korrektes Referenztranskript.")
         StepText("4", "Benchmark starten und Produktentscheidung lesen", "Ergebnis zeigt jetzt zusätzlich, ob diese Engine/Modell-Kombination tl;dh-tauglich wäre.")
@@ -702,8 +755,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.3.2 Fokus") {
-        Text("Diese Version startet den praktischen whisper.cpp-Pfad: Modellkatalog, Download, Speicherprüfung und klare Vorbereitung für die nächste Native/JNI-Transkription. Vosk bleibt bis dahin die einzige ausführbare Engine.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.3.3 Fokus") {
+        Text("Diese Version korrigiert den whisper.cpp-Preflight: Download-Fortschritt wird nur noch beim betroffenen Modell angezeigt, und whisper.cpp kann nach geladenem Modell als aktive Ziel-Engine gesetzt werden. Vosk bleibt bis zur Native/JNI-Integration die einzige ausführbare Engine.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -725,10 +778,13 @@ private fun StepText(number: String, title: String, body: String) {
 
 @Composable
 private fun EnginesSection(
+    activeEngineId: String,
     selectedWhisperModel: WhisperModelSpec,
     installedWhisperIds: Set<String>,
+    whisperBusyModelId: String?,
     busyLabel: String?,
     progress: Int,
+    onActivateEngine: (String) -> Unit,
     onSelectWhisper: (WhisperModelSpec) -> Unit,
     onDownloadWhisper: (WhisperModelSpec) -> Unit,
     onDeleteWhisper: (WhisperModelSpec) -> Unit,
@@ -737,13 +793,20 @@ private fun EnginesSection(
 ) {
     CardBlock(title = "Engine-Schicht / Kandidaten") {
         Text(
-            "Vosk bleibt die aktive Benchmark-Baseline. whisper.cpp ist jetzt als nächster On-Device-Pfad vorbereitet: Modelle laden, Speicher prüfen, danach Native/JNI-Transkription aktivieren.",
+            "Vosk bleibt die ausführbare Benchmark-Baseline. whisper.cpp kann jetzt nach geladenem Modell als aktive Ziel-Engine markiert werden; die echte Native/JNI-Transkription folgt im nächsten Implementierungsschritt.",
             color = TextMuted,
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
         SttEngineCatalog.engines.forEach { engine ->
-            EngineCandidateCard(engine)
+            val canActivate = engine.id == "vosk" || (engine.id == "whisper-cpp" && installedWhisperIds.isNotEmpty())
+            EngineCandidateCard(
+                engine = engine,
+                active = activeEngineId == engine.id,
+                canActivate = canActivate,
+                installedWhisperCount = installedWhisperIds.size,
+                onActivate = { onActivateEngine(engine.id) }
+            )
             Spacer(Modifier.height(10.dp))
         }
         ActionStack {
@@ -754,6 +817,7 @@ private fun EnginesSection(
     WhisperModelPrepSection(
         selectedModel = selectedWhisperModel,
         installedIds = installedWhisperIds,
+        busyModelId = whisperBusyModelId,
         busyLabel = busyLabel,
         progress = progress,
         onSelect = onSelectWhisper,
@@ -770,6 +834,7 @@ private fun EnginesSection(
 private fun WhisperModelPrepSection(
     selectedModel: WhisperModelSpec,
     installedIds: Set<String>,
+    busyModelId: String?,
     busyLabel: String?,
     progress: Int,
     onSelect: (WhisperModelSpec) -> Unit,
@@ -778,7 +843,7 @@ private fun WhisperModelPrepSection(
 ) {
     CardBlock(title = "whisper.cpp Modell-Preflight") {
         Text(
-            "v0.3.2 lädt noch keine Native Engine und transkribiert noch nicht mit Whisper. Ziel ist bewusst der belastbare Vorlauf: Modellgrößen, Download, Speicher und Bedienpfad testen, bevor JNI/C++ in v0.3.3 aktiviert wird.",
+            "v0.3.3 lädt noch keine Native Engine und transkribiert noch nicht mit Whisper. Ziel ist der belastbare Vorlauf: Modellgrößen, Download, Speicher, aktive Engine-Auswahl und Bedienpfad testen, bevor JNI/C++ im nächsten Schritt aktiviert wird.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -795,6 +860,7 @@ private fun WhisperModelPrepSection(
                 selected = selectedModel.id == spec.id,
                 installed = installedIds.contains(spec.id),
                 busy = busyLabel != null,
+                downloading = busyModelId == spec.id,
                 progress = progress,
                 busyLabel = busyLabel,
                 onSelect = { onSelect(spec) },
@@ -812,6 +878,7 @@ private fun WhisperModelCard(
     selected: Boolean,
     installed: Boolean,
     busy: Boolean,
+    downloading: Boolean,
     progress: Int,
     busyLabel: String?,
     onSelect: () -> Unit,
@@ -836,7 +903,20 @@ private fun WhisperModelCard(
                 Text(spec.displayName, color = TextMain, fontWeight = FontWeight.Bold)
                 Text("${spec.sizeLabel} · RAM ${spec.memoryLabel}", color = TextMuted, fontSize = 13.sp)
             }
-            Text(if (installed) "bereit" else "nicht geladen", color = if (installed) Good else TextMuted, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+            Text(
+                when {
+                    selected && installed -> "aktiv"
+                    installed -> "bereit"
+                    else -> "nicht geladen"
+                },
+                color = when {
+                    selected && installed -> Accent2
+                    installed -> Good
+                    else -> TextMuted
+                },
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.End
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SignalChip("Speed", spec.speedSignal)
@@ -844,13 +924,13 @@ private fun WhisperModelCard(
             SignalChip("Phone", spec.phoneSignal)
         }
         Text(spec.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
-        if (busyLabel?.contains("Whisper") == true) {
+        if (downloading) {
             LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            Text("$busyLabel $progress%", color = TextMuted, fontSize = 13.sp)
+            Text("${busyLabel.orEmpty()} $progress%", color = TextMuted, fontSize = 13.sp)
         }
         ActionStack {
             if (installed) {
-                PrimaryActionButton(if (selected) "Whisper-Modell ausgewählt" else "Als Whisper-Kandidat wählen", onSelect, enabled = !busy)
+                PrimaryActionButton(if (selected) "Whisper aktiv" else "Whisper aktiv setzen", onSelect, enabled = !busy)
                 SecondaryActionButton("Whisper-Modell löschen", onDelete, enabled = !busy)
             } else {
                 SecondaryActionButton("Whisper-Modell laden", onDownload, enabled = !busy)
@@ -860,18 +940,25 @@ private fun WhisperModelCard(
 }
 
 @Composable
-private fun EngineCandidateCard(engine: SttEngineSpec) {
-    val color = when (engine.readiness) {
-        SttEngineReadiness.ACTIVE -> Good
-        SttEngineReadiness.NEXT_CANDIDATE -> Accent2
-        SttEngineReadiness.PLANNED -> Warn
-        SttEngineReadiness.EXTERNAL -> TextMain
+private fun EngineCandidateCard(
+    engine: SttEngineSpec,
+    active: Boolean,
+    canActivate: Boolean,
+    installedWhisperCount: Int,
+    onActivate: () -> Unit
+) {
+    val color = when {
+        active -> Good
+        engine.readiness == SttEngineReadiness.NEXT_CANDIDATE -> Accent2
+        engine.readiness == SttEngineReadiness.PLANNED -> Warn
+        engine.readiness == SttEngineReadiness.EXTERNAL -> TextMain
+        else -> Good
     }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
-            .border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+            .border(1.dp, color.copy(alpha = if (active) 0.95f else 0.55f), RoundedCornerShape(18.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -880,11 +967,27 @@ private fun EngineCandidateCard(engine: SttEngineSpec) {
                 Text(engine.displayName, color = TextMain, fontWeight = FontWeight.Bold)
                 Text(engine.localMode, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
             }
-            Text(engine.shortLabel, color = color, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+            Text(if (active) "aktiv" else engine.shortLabel, color = color, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
         }
         Text("Stärke: ${engine.expectedStrength}", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         Text("Risiko: ${engine.expectedRisk}", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         Text("Nächster Schritt: ${engine.nextStep}", color = color, fontSize = 13.sp, lineHeight = 18.sp)
+        if (engine.id == "whisper-cpp") {
+            Text(
+                if (installedWhisperCount > 0) "Whisper-Modelle bereit: $installedWhisperCount. Engine kann als Ziel aktiv gesetzt werden; Transkription folgt per Native/JNI." else "Noch kein Whisper-Modell geladen. Nach dem ersten Download kann whisper.cpp aktiv gesetzt werden.",
+                color = if (installedWhisperCount > 0) Good else Warn,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        }
+        ActionStack {
+            when {
+                active -> SecondaryActionButton("Aktiv", onClick = {}, enabled = false)
+                canActivate && engine.id in setOf("vosk", "whisper-cpp") -> PrimaryActionButton("Als aktive Engine setzen", onActivate)
+                engine.id == "whisper-cpp" -> SecondaryActionButton("Erst Whisper-Modell laden", onClick = {}, enabled = false)
+                else -> SecondaryActionButton("Noch nicht auswählbar", onClick = {}, enabled = false)
+            }
+        }
     }
 }
 
@@ -954,8 +1057,11 @@ private fun CorpusSection(
 @Composable
 private fun RunSection(
     sharedAudio: SharedAudio?,
+    activeEngineId: String,
     selectedModel: VoskModelSpec,
     selectedModelInstalled: Boolean,
+    selectedWhisperModel: WhisperModelSpec,
+    selectedWhisperModelInstalled: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     referenceText: String,
@@ -979,8 +1085,11 @@ private fun RunSection(
 ) {
     BenchmarkActionCard(
         sharedAudio = sharedAudio,
+        activeEngineId = activeEngineId,
         selectedModel = selectedModel,
         selectedModelInstalled = selectedModelInstalled,
+        selectedWhisperModel = selectedWhisperModel,
+        selectedWhisperModelInstalled = selectedWhisperModelInstalled,
         selectedSample = selectedSample,
         selectedLongFormLabel = selectedLongFormLabel,
         referenceText = referenceText,
@@ -1023,8 +1132,11 @@ private fun RunSection(
 @Composable
 private fun BenchmarkActionCard(
     sharedAudio: SharedAudio?,
+    activeEngineId: String,
     selectedModel: VoskModelSpec,
     selectedModelInstalled: Boolean,
+    selectedWhisperModel: WhisperModelSpec,
+    selectedWhisperModelInstalled: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     referenceText: String,
@@ -1041,8 +1153,20 @@ private fun BenchmarkActionCard(
             referenceText = referenceText
         )
         Spacer(Modifier.height(8.dp))
-        Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
-        if (!selectedModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
+        val activeEngineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
+        val activeModelLabel = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+        val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
+        Text("Aktive Engine: $activeEngineLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text("Aktives Modell: $activeModelLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
+        if (!activeModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
+        if (activeEngineId == "whisper-cpp") {
+            Text(
+                "whisper.cpp ist aktiv vorgemerkt. Dieser Build enthält aber noch keine Native/JNI-Transkription; der Benchmark-Button bleibt deshalb deaktiviert, bis der Whisper-Runner eingebaut ist.",
+                color = Warn,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        }
         if (sharedAudio?.sourceKind == AudioSourceKind.EXTERNAL_SHARE && referenceText.isBlank()) {
             Text(
                 "Eigene Shared-Audio ist bereit. Für WER/CER/S/I/D musst Du darunter noch den korrekten Referenztext einfügen; sonst misst die App nur Speed und erzeugt das erkannte Transkript.",
@@ -1061,7 +1185,7 @@ private fun BenchmarkActionCard(
         }
         Spacer(Modifier.height(10.dp))
         ActionStack {
-            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = sharedAudio != null && selectedModelInstalled && selectedModel.deviceSignal != Signal.RED && !busy)
+            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = sharedAudio != null && activeEngineId == "vosk" && selectedModelInstalled && selectedModel.deviceSignal != Signal.RED && !busy)
             SecondaryActionButton("Lauf zurücksetzen", onReset, enabled = !busy)
         }
         if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {

@@ -1,6 +1,20 @@
 # Changelog
 
 
+## 0.3.3 - whisper activation and model-specific progress
+
+### Fixed
+- Show whisper.cpp model download progress only on the model that is currently downloading instead of all Whisper cards.
+- Allow whisper.cpp to be set as the active target engine once at least one Whisper model is installed.
+- Auto-select whisper.cpp after a successful Whisper model download so the Engines tab reflects the next test target.
+- Keep benchmark execution blocked for whisper.cpp until the Native/JNI runner is implemented, with an explicit user-facing explanation instead of implying that Vosk will run.
+
+### Changed
+- Active setup summary now shows the active engine and matching active model, not only the Vosk model.
+- Release tag moves to `stt-bench-v0.3.3`.
+- Workflow and Gradle version defaults move to `0.3.3` / versionCode `303`.
+
+
 ## 0.3.2 - whisper.cpp model preflight
 
 ### Added

@@ -1,12 +1,13 @@
 # tl;dh STT Bench
 
 
-## v0.3.2 — whisper.cpp model preflight
+## v0.3.3 — whisper.cpp activation and model-specific progress
 
-This release starts the practical whisper.cpp path without yet enabling native transcription:
+This release fixes and completes the practical whisper.cpp preflight without yet enabling native transcription:
 
-- Adds a whisper.cpp model-preflight area in the Engine section.
-- Adds downloadable multilingual ggml model candidates: `tiny`, `base`, `small`.
+- Keeps the whisper.cpp model-preflight area in the Engine section.
+- Shows model download progress only on the currently downloading Whisper model.
+- Lets whisper.cpp be set as the active target engine once at least one Whisper model is installed.
 - Keeps Vosk as the only executable benchmark engine for this release.
 - Prepares the next step: Native/JNI whisper.cpp execution against the same audio/reference pipeline.
 
@@ -15,9 +16,9 @@ Recommended first test order on phone: `Whisper tiny` → `Whisper base` → onl
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.3.2
+## Current release: 0.3.3
 
-Focus: practical whisper.cpp preparation. Vosk remains the only executable STT engine, but the Engines section can now download and manage multilingual whisper.cpp `tiny`, `base`, and `small` ggml model files. This verifies storage/download/model handling before the Native/JNI transcription adapter is added in the next step.
+Focus: practical whisper.cpp preparation and engine selection. Vosk remains the only executable STT engine, but the Engines section can now download/manage multilingual whisper.cpp `tiny`, `base`, and `small` ggml model files, show progress per model, and mark whisper.cpp as the active target engine once a model is ready. This verifies storage/download/model handling before the Native/JNI transcription adapter is added in the next step.
 
 ## Features
 
@@ -47,8 +48,8 @@ Focus: practical whisper.cpp preparation. Vosk remains the only executable STT e
 
 The app now has a dedicated **Engines** section. This does not yet ship a second working STT backend; it creates the comparison layer needed before introducing the next native/offline engine. The current state is:
 
-- **Vosk Android**: active baseline and still the only executable engine in v0.3.2.
-- **whisper.cpp**: model-preflight active in v0.3.2; Native/JNI transcription is the next milestone.
+- **Vosk Android**: executable baseline and still the only runnable benchmark engine in v0.3.3.
+- **whisper.cpp**: model-preflight and active-target selection in v0.3.3; Native/JNI transcription is the next milestone.
 - **sherpa-onnx**: planned second non-Vosk mobile candidate after a suitable German model is selected.
 - **LAN/Tower Whisper**: later local-network quality mode for longer or important audios.
 

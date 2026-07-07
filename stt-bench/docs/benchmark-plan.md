@@ -1,6 +1,6 @@
 # Benchmark Plan
 
-## v0.3.2 focus
+## v0.3.3 focus
 
 Keep Vosk as the executable baseline and start the practical whisper.cpp path with model-preflight: download, storage, cleanup and candidate selection for tiny/base/small before enabling Native/JNI transcription.
 
@@ -68,11 +68,11 @@ Product-readiness thresholds used by the app:
 - High deletion count: risky even if CER looks acceptable, because missing negations, times, names or numbers can invert meaning.
 
 
-## v0.3.2 whisper.cpp preflight protocol
+## v0.3.3 whisper.cpp preflight protocol
 
 1. Open **Engines**.
 2. Download `Whisper tiny` first. Confirm the model reaches `bereit`.
 3. Repeat with `Whisper base` if storage and download time are acceptable.
 4. Download `Whisper small` only as a deliberate quality-candidate preparation step.
-5. No Whisper benchmark is expected yet in v0.3.2. Vosk remains the executable engine until the Native/JNI adapter lands.
+5. No Whisper benchmark is expected yet in v0.3.3. Vosk remains the executable engine until the Native/JNI adapter lands.
 6. v0.3.3 target: use the already prepared PCM file and reference-comparison pipeline, run whisper.cpp, then compare WER/CER/S/I/D and RTF against the same Vosk reports.
