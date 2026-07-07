@@ -1,19 +1,19 @@
 # Benchmark Plan
 
-## v0.3.3 focus
+## v0.3.4 focus
 
-Keep Vosk as the executable baseline and start the practical whisper.cpp path with model-preflight: download, storage, cleanup and candidate selection for tiny/base/small before enabling Native/JNI transcription.
+Keep Vosk as the speed baseline and activate the first executable whisper.cpp path. The same decoded/preprocessed audio, reference text, WER/CER/S/I/D metrics, history and reports must be used so Vosk and Whisper can be compared fairly.
 
 ## Test flow
 
-1. Install/select Vosk model.
+1. Install/select either a Vosk model or a Whisper model.
 2. Share audio into `tl;dh STT Bench`, select a gold-standard sample, or generate a 30s/90s/4min longform WAV profile.
 3. Confirm that the reference field contains the expected transcript when WER/CER is needed.
 4. Run benchmark.
 5. Review:
    - total time
    - RTF
-   - transcript with timestamps
+   - transcript; Vosk has timestamps, the first Whisper path has full text only
    - WER / CER
    - S/I/D and total word errors
    - first word-level deviations
@@ -31,7 +31,7 @@ Keep Vosk as the executable baseline and start the practical whisper.cpp path wi
 ## Longform interpretation
 
 - The generated longform WAV is one actual audio file, not just a UI-level loop.
-- WER/CER compares the joined reference transcript against the recognized Vosk transcript.
+- WER/CER compares the joined reference transcript against the recognized transcript of the active engine.
 - 30s approximates a short voice message; 90s approximates a longer real message; 4min stress-tests local speed and memory behavior.
 
 ## Batch interpretation
@@ -43,7 +43,7 @@ Keep Vosk as the executable baseline and start the practical whisper.cpp path wi
 
 ## Next candidates
 
-If Vosk small remains too inaccurate, compare the new non-speech-reduction results against previous runs, then continue with context vocabulary, larger Vosk models, or other STT engines.
+If Vosk remains too inaccurate, compare Whisper tiny/base/small on the same real audios. Only consider tl;dh integration when WER drops meaningfully below the previous 40-47% Vosk real-audio baseline and RTF remains acceptable.
 
 
 ## UX notes
@@ -68,11 +68,12 @@ Product-readiness thresholds used by the app:
 - High deletion count: risky even if CER looks acceptable, because missing negations, times, names or numbers can invert meaning.
 
 
-## v0.3.3 whisper.cpp preflight protocol
+## v0.3.4 whisper.cpp test protocol
 
 1. Open **Engines**.
-2. Download `Whisper tiny` first. Confirm the model reaches `bereit`.
-3. Repeat with `Whisper base` if storage and download time are acceptable.
-4. Download `Whisper small` only as a deliberate quality-candidate preparation step.
-5. No Whisper benchmark is expected yet in v0.3.3. Vosk remains the executable engine until the Native/JNI adapter lands.
-6. v0.3.3 target: use the already prepared PCM file and reference-comparison pipeline, run whisper.cpp, then compare WER/CER/S/I/D and RTF against the same Vosk reports.
+2. Download `Whisper tiny` first and set whisper.cpp active.
+3. Run the same real Shared-Audio + reference text used for the Vosk reports.
+4. Repeat with `Whisper base`.
+5. Test `Whisper small` only if tiny/base are stable and storage/battery/time are acceptable.
+6. Compare RTF, WER, CER, S/I/D and deletion risk against Vosk Small DE 0.15 and Big DE 0.21.
+7. Treat crashes, very long hangs or RTF > 1.0 on 4-6 minute audios as strong signals for LAN/Tower quality mode instead of phone-only product integration.

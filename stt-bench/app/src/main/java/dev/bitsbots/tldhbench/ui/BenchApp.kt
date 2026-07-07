@@ -181,11 +181,6 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     }
 
     fun composeLongForm(profile: LongFormProfile) {
-        if (!installedIds.contains(selectedModel.id)) {
-            error = "Longform-Test nicht möglich: Installiere zuerst das aktive Modell ${selectedModel.displayName}."
-            selectedSection = BenchSection.Results
-            return
-        }
         scope.launch {
             error = null
             result = null
@@ -214,18 +209,17 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
 
     fun runSingleBenchmark() {
         val audio = sharedAudioState.value ?: return
-        if (activeEngineId == "whisper-cpp") {
-            error = "whisper.cpp ist als aktive Engine vorgemerkt (${selectedWhisperModel.displayName}), aber die Native/JNI-Transkription ist in diesem Build noch nicht aktiviert. Nächster Schritt: echter whisper.cpp-Benchmark gegen dieselbe Audio-/Referenz-Pipeline."
-            selectedSection = BenchSection.Results
-            return
-        }
         scope.launch {
             error = null
             result = null
             busyLabel = "Benchmark läuft…"
             selectedSection = BenchSection.Run
             runCatching {
-                BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
+                if (activeEngineId == "whisper-cpp") {
+                    BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText)
+                } else {
+                    BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
+                }
             }.onSuccess {
                 result = it
                 historyStore.add(it)
@@ -235,26 +229,33 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 selectedSection = BenchSection.Results
             }.onFailure {
                 busyLabel = null
-                error = "Benchmark fehlgeschlagen (${selectedModel.displayName}): ${it.message}"
+                val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+                error = "Benchmark fehlgeschlagen ($activeModelName): ${it.message}"
                 selectedSection = BenchSection.Results
             }
         }
     }
 
     fun runBatchBenchmark() {
-        if (activeEngineId == "whisper-cpp") {
-            error = "Batch mit whisper.cpp ist erst nach Aktivierung der Native/JNI-Transkription möglich. Aktuell ist nur Vosk ausführbar."
-            selectedSection = BenchSection.Results
-            return
-        }
         val baseSamples = BuiltInReferenceCorpus.samples.filter { installedSampleIds.contains(it.id) }
         if (baseSamples.isEmpty()) {
             error = "Batch nicht möglich: Lade zuerst mindestens ein Goldstandard-Testaudio."
             selectedSection = BenchSection.Results
             return
         }
-        if (!installedIds.contains(selectedModel.id)) {
-            error = "Batch nicht möglich: Installiere zuerst das aktive Modell ${selectedModel.displayName}."
+        val activeModelInstalled = if (activeEngineId == "whisper-cpp") {
+            installedWhisperIds.contains(selectedWhisperModel.id)
+        } else {
+            installedIds.contains(selectedModel.id)
+        }
+        val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+        if (!activeModelInstalled) {
+            error = "Batch nicht möglich: Installiere zuerst das aktive Modell $activeModelName."
+            selectedSection = BenchSection.Results
+            return
+        }
+        if (activeEngineId == "vosk" && selectedModel.deviceSignal == Signal.RED) {
+            error = "Batch nicht möglich: ${selectedModel.displayName} ist auf Android per Crash-Guard blockiert."
             selectedSection = BenchSection.Results
             return
         }
@@ -273,20 +274,24 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 runCatching {
                     busyLabel = "Batch ${index + 1}/${batchSamples.size}: ${sample.id}"
                     progress = (((index + 1) * 100) / batchSamples.size).coerceIn(0, 100)
-                    BenchmarkRunner(context).runVosk(corpusManager.sharedAudio(sample), selectedModel, sample.referenceText)
+                    if (activeEngineId == "whisper-cpp") {
+                        BenchmarkRunner(context).runWhisper(corpusManager.sharedAudio(sample), selectedWhisperModel, sample.referenceText)
+                    } else {
+                        BenchmarkRunner(context).runVosk(corpusManager.sharedAudio(sample), selectedModel, sample.referenceText)
+                    }
                 }.onSuccess {
                     results += it
                     historyStore.add(it)
                     history = historyStore.load()
                 }.onFailure { throwable ->
                     busyLabel = null
-                    error = "Batch-Benchmark fehlgeschlagen (${selectedModel.displayName}): ${throwable.message}"
-                    if (results.isNotEmpty()) batchReport = BatchRunReport.from(selectedModel, results, batchRepeatCount)
+                    error = "Batch-Benchmark fehlgeschlagen ($activeModelName): ${throwable.message}"
+                    if (results.isNotEmpty()) batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
                     selectedSection = BenchSection.Results
                     return@launch
                 }
             }
-            batchReport = BatchRunReport.from(selectedModel, results, batchRepeatCount)
+            batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
             busyLabel = null
             historyExpanded = true
             selectedSection = BenchSection.Results
@@ -742,7 +747,7 @@ private fun StartSection(
     CardBlock(title = "Geführter Ablauf") {
         Text("Version v$appVersion · separater STT-Benchmark. Die Haupt-App tl;dh bleibt unberührt.", color = TextMuted, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
-        StepText("1", "Engine-Strategie prüfen", "Vosk ist die ausführbare Baseline; whisper.cpp kann nach Modell-Download als aktive Ziel-Engine vorgemerkt werden.")
+        StepText("1", "Engine-Strategie prüfen", "Vosk ist die Speed-Baseline; whisper.cpp ist nach Modell-Download als zweite ausführbare Offline-Engine testbar.")
         StepText("2", "Vosk-Modell installieren oder wechseln", "Small DE fürs Handy, Big DE als Qualitäts-/Stressprobe.")
         StepText("3", "Goldstandard oder eigene Shared-Audio nutzen", "Für Wortabweichungen braucht die App immer ein korrektes Referenztranskript.")
         StepText("4", "Benchmark starten und Produktentscheidung lesen", "Ergebnis zeigt jetzt zusätzlich, ob diese Engine/Modell-Kombination tl;dh-tauglich wäre.")
@@ -755,8 +760,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.3.3 Fokus") {
-        Text("Diese Version korrigiert den whisper.cpp-Preflight: Download-Fortschritt wird nur noch beim betroffenen Modell angezeigt, und whisper.cpp kann nach geladenem Modell als aktive Ziel-Engine gesetzt werden. Vosk bleibt bis zur Native/JNI-Integration die einzige ausführbare Engine.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.3.4 Fokus") {
+        Text("Diese Version aktiviert den ersten echten whisper.cpp-Einzelbenchmark über dieselbe Audio-/Referenz-/WER-Pipeline. tiny/base/small können jetzt gegen Vosk verglichen werden.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -793,7 +798,7 @@ private fun EnginesSection(
 ) {
     CardBlock(title = "Engine-Schicht / Kandidaten") {
         Text(
-            "Vosk bleibt die ausführbare Benchmark-Baseline. whisper.cpp kann jetzt nach geladenem Modell als aktive Ziel-Engine markiert werden; die echte Native/JNI-Transkription folgt im nächsten Implementierungsschritt.",
+            "Vosk bleibt die schnelle Benchmark-Baseline. whisper.cpp ist jetzt nach geladenem Modell ausführbar und läuft gegen dieselbe Audio-/Referenz-/WER-Pipeline.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -843,7 +848,7 @@ private fun WhisperModelPrepSection(
 ) {
     CardBlock(title = "whisper.cpp Modell-Preflight") {
         Text(
-            "v0.3.3 lädt noch keine Native Engine und transkribiert noch nicht mit Whisper. Ziel ist der belastbare Vorlauf: Modellgrößen, Download, Speicher, aktive Engine-Auswahl und Bedienpfad testen, bevor JNI/C++ im nächsten Schritt aktiviert wird.",
+            "v0.3.4 aktiviert den ersten echten whisper.cpp-Pfad. Die Modelle bleiben separat ladbar; tiny/base/small sollen jetzt real gegen Vosk auf denselben Audios verglichen werden.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -974,7 +979,7 @@ private fun EngineCandidateCard(
         Text("Nächster Schritt: ${engine.nextStep}", color = color, fontSize = 13.sp, lineHeight = 18.sp)
         if (engine.id == "whisper-cpp") {
             Text(
-                if (installedWhisperCount > 0) "Whisper-Modelle bereit: $installedWhisperCount. Engine kann als Ziel aktiv gesetzt werden; Transkription folgt per Native/JNI." else "Noch kein Whisper-Modell geladen. Nach dem ersten Download kann whisper.cpp aktiv gesetzt werden.",
+                if (installedWhisperCount > 0) "Whisper-Modelle bereit: $installedWhisperCount. Engine ist ausführbar; starte im Benchmark-Tab mit derselben Audio-/Referenz-Pipeline." else "Noch kein Whisper-Modell geladen. Nach dem ersten Download kann whisper.cpp aktiv gesetzt und benchmarked werden.",
                 color = if (installedWhisperCount > 0) Good else Warn,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
@@ -1083,6 +1088,8 @@ private fun RunSection(
     onCopyBatchReport: (BatchRunReport) -> Unit,
     onClearBatchReport: () -> Unit
 ) {
+    val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
+
     BenchmarkActionCard(
         sharedAudio = sharedAudio,
         activeEngineId = activeEngineId,
@@ -1102,7 +1109,7 @@ private fun RunSection(
     LongFormScenarioCard(
         installedCount = installedSampleCount,
         totalCount = totalSampleCount,
-        selectedModelInstalled = selectedModelInstalled,
+        selectedModelInstalled = activeModelInstalled,
         busy = busy,
         onCompose = onComposeLongForm
     )
@@ -1115,8 +1122,11 @@ private fun RunSection(
     BatchBenchmarkCard(
         installedCount = installedSampleCount,
         totalCount = totalSampleCount,
+        activeEngineId = activeEngineId,
         selectedModel = selectedModel,
         selectedModelInstalled = selectedModelInstalled,
+        selectedWhisperModel = selectedWhisperModel,
+        selectedWhisperModelInstalled = selectedWhisperModelInstalled,
         busy = busy,
         progress = progress,
         busyLabel = busyLabel,
@@ -1161,7 +1171,7 @@ private fun BenchmarkActionCard(
         if (!activeModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
         if (activeEngineId == "whisper-cpp") {
             Text(
-                "whisper.cpp ist aktiv vorgemerkt. Dieser Build enthält aber noch keine Native/JNI-Transkription; der Benchmark-Button bleibt deshalb deaktiviert, bis der Whisper-Runner eingebaut ist.",
+                "whisper.cpp ist aktiv. Erste Integration: Gesamttranskript ohne Wort-Zeitstempel; WER/CER/S/I/D funktionieren mit Referenztext.",
                 color = Warn,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
@@ -1175,7 +1185,7 @@ private fun BenchmarkActionCard(
                 lineHeight = 18.sp
             )
         }
-        if (selectedModel.deviceSignal == Signal.RED) {
+        if (activeEngineId == "vosk" && selectedModel.deviceSignal == Signal.RED) {
             Text(
                 "Android-Crash-Guard aktiv: Dieses Modell ist als Handy-ungeeignet markiert und wird auf dem Gerät nicht gestartet. Nutze Big DE 0.21 oder später den Tower/LAN-Modus.",
                 color = Bad,
@@ -1185,7 +1195,8 @@ private fun BenchmarkActionCard(
         }
         Spacer(Modifier.height(10.dp))
         ActionStack {
-            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = sharedAudio != null && activeEngineId == "vosk" && selectedModelInstalled && selectedModel.deviceSignal != Signal.RED && !busy)
+            val canRun = sharedAudio != null && activeModelInstalled && !busy && (activeEngineId != "vosk" || selectedModel.deviceSignal != Signal.RED)
+            PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = canRun)
             SecondaryActionButton("Lauf zurücksetzen", onReset, enabled = !busy)
         }
         if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {
@@ -1550,7 +1561,7 @@ private fun LongFormScenarioCard(
 ) {
     CardBlock(title = "Realistische Longform-Testaudios") {
         Text(
-            "Erzeugt aus mehreren echten CC0-Referenzaufnahmen ein einzelnes WAV-Testaudio mit automatisch zusammengesetztem Referenztranskript. Danach läuft der normale Einzelbenchmark gegen genau dieses erkannte Vosk-Transkript.",
+            "Erzeugt aus mehreren echten CC0-Referenzaufnahmen ein einzelnes WAV-Testaudio mit automatisch zusammengesetztem Referenztranskript. Danach läuft der normale Einzelbenchmark gegen genau diese Audio. Der Referenzvergleich erfolgt gegen das erkannte STT-Transkript der aktiven Engine.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -1584,8 +1595,11 @@ private fun LongFormScenarioCard(
 private fun BatchBenchmarkCard(
     installedCount: Int,
     totalCount: Int,
+    activeEngineId: String,
     selectedModel: VoskModelSpec,
     selectedModelInstalled: Boolean,
+    selectedWhisperModel: WhisperModelSpec,
+    selectedWhisperModelInstalled: Boolean,
     busy: Boolean,
     progress: Int,
     busyLabel: String?,
@@ -1603,10 +1617,14 @@ private fun BatchBenchmarkCard(
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
-        Text("Aktives Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+        val activeEngineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
+        val activeModelLabel = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+        val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
+        Text("Aktive Engine: $activeEngineLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text("Aktives Modell: $activeModelLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Goldstandard-Audios bereit: $installedCount/$totalCount", color = if (installedCount > 0) Good else TextMuted)
-        Text(if (selectedModelInstalled) "Modell installiert: ja" else "Modell installiert: nein", color = if (selectedModelInstalled) Good else Warn)
-        if (selectedModel.deviceSignal == Signal.RED) Text("Android-Crash-Guard: Dieses Modell wird auf dem Handy nicht gestartet.", color = Bad, fontSize = 13.sp, lineHeight = 18.sp)
+        Text(if (activeModelInstalled) "Modell installiert: ja" else "Modell installiert: nein", color = if (activeModelInstalled) Good else Warn)
+        if (activeEngineId == "vosk" && selectedModel.deviceSignal == Signal.RED) Text("Android-Crash-Guard: Dieses Modell wird auf dem Handy nicht gestartet.", color = Bad, fontSize = 13.sp, lineHeight = 18.sp)
         Text("Geplante Läufe: ${installedCount * batchRepeatCount} · Profil: ${batchRepeatCount}× Corpus", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("1×/3×/8×/20× bedeutet: kompletter geladener Goldstandard-Korpus wird so oft wiederholt. Das ist ein Batch-Langlauf, kein einzelnes zusammengeklebtes Audio.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
@@ -1621,7 +1639,7 @@ private fun BatchBenchmarkCard(
         }
         Text("Für realistische Einzel-Audios mit ca. 30 Sekunden, 90 Sekunden oder 4 Minuten nutze die Longform-Testaudios oben. Für echte WhatsApp-/Telegram-Dateien teile die Audio direkt an diese App.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
-            PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && selectedModelInstalled && selectedModel.deviceSignal != Signal.RED)
+            PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && activeModelInstalled && (activeEngineId != "vosk" || selectedModel.deviceSignal != Signal.RED))
             SecondaryActionButton("Report kopieren", { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null)
             SecondaryActionButton("Leeren", onClearReport, enabled = !busy && batchReport != null)
         }
@@ -1676,7 +1694,7 @@ private fun ReferenceTextCard(
     val wordCount = referenceText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
     CardBlock(title = "Referenztext / Goldstandard") {
         Text(
-            "Optional: korrekten Text zur Audio einfügen. Nach dem Benchmark berechnet die App WER und CER gegen das erkannte Vosk-Transkript.",
+            "Optional: korrekten Text zur Audio einfügen. Nach dem Benchmark berechnet die App WER und CER gegen das erkannte STT-Transkript.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -2070,9 +2088,9 @@ private data class BatchRunReport(
         ?: "n/a"
 
     companion object {
-        fun from(model: VoskModelSpec, results: List<BenchmarkResult>, repeatCount: Int = 1): BatchRunReport = BatchRunReport(
-            modelName = model.displayName,
-            modelId = model.id,
+        fun from(modelName: String, modelId: String, results: List<BenchmarkResult>, repeatCount: Int = 1): BatchRunReport = BatchRunReport(
+            modelName = modelName,
+            modelId = modelId,
             createdAtMs = System.currentTimeMillis(),
             results = results.toList(),
             repeatCount = repeatCount

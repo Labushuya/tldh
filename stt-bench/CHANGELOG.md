@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.4 - executable whisper.cpp benchmark
+
+### Added
+- Add first executable whisper.cpp benchmark path using the existing decode/preprocessing pipeline.
+- Convert prepared 16 kHz mono PCM to WAV for the Android whisper.cpp wrapper.
+- Run Whisper tiny/base/small models against the same reference-comparison pipeline as Vosk.
+- Enable whisper.cpp single benchmark and batch corpus benchmark.
+- Add warnings that the first Whisper path currently has no word/segment timestamps.
+
+### Changed
+- Release tag moves to `stt-bench-v0.3.4`.
+- Workflow and Gradle version defaults move to `0.3.4` / versionCode `304`.
+- Engine UI now describes whisper.cpp as executable instead of only prepared.
+
 
 ## 0.3.3 - whisper activation and model-specific progress
 

@@ -1,24 +1,21 @@
 # tl;dh STT Bench
 
 
-## v0.3.3 — whisper.cpp activation and model-specific progress
+## v0.3.4 — first executable whisper.cpp benchmark
 
-This release fixes and completes the practical whisper.cpp preflight without yet enabling native transcription:
+This release activates the first real whisper.cpp path in the benchmark app. It uses the existing Android audio ingest/decode/preprocessing pipeline, writes the prepared 16 kHz mono PCM to a WAV container, and runs the downloaded Whisper model through an Android whisper.cpp wrapper.
 
-- Keeps the whisper.cpp model-preflight area in the Engine section.
-- Shows model download progress only on the currently downloading Whisper model.
-- Lets whisper.cpp be set as the active target engine once at least one Whisper model is installed.
-- Keeps Vosk as the only executable benchmark engine for this release.
-- Prepares the next step: Native/JNI whisper.cpp execution against the same audio/reference pipeline.
-
-Recommended first test order on phone: `Whisper tiny` → `Whisper base` → only then `Whisper small` if storage/battery/time are acceptable.
-
+- Vosk remains available as the speed baseline.
+- whisper.cpp can now be selected and executed for single benchmarks and batch corpus runs.
+- tiny/base/small Whisper models can be compared against the exact same audio/reference/WER/CER pipeline as Vosk.
+- Whisper reports currently contain a full transcript but no word/segment timestamps.
+- Recommended first test order on phone: `Whisper tiny` → `Whisper base` → only then `Whisper small` if storage/battery/time are acceptable.
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.3.3
+## Current release: 0.3.4
 
-Focus: practical whisper.cpp preparation and engine selection. Vosk remains the only executable STT engine, but the Engines section can now download/manage multilingual whisper.cpp `tiny`, `base`, and `small` ggml model files, show progress per model, and mark whisper.cpp as the active target engine once a model is ready. This verifies storage/download/model handling before the Native/JNI transcription adapter is added in the next step.
+Focus: first executable on-device whisper.cpp benchmark. The goal is not final product integration yet, but a fair measured comparison against Vosk on the same real WhatsApp audios and gold-standard references.
 
 ## Features
 
@@ -39,17 +36,17 @@ Focus: practical whisper.cpp preparation and engine selection. Vosk remains the 
 - Section-based UI: Start, Engines, Modelle, Goldstandard, Benchmark, Ergebnisse, Updates.
 - Responsive full-width action buttons with minimum height and centered labels so text does not shift or collapse on phone screens.
 - Generated longform WAV profiles: ~30 seconds, ~90 seconds, and ~4 minutes, each with an automatically built reference transcript.
-- Batch-benchmark all installed gold-standard samples with the active model.
+- Batch-benchmark all installed gold-standard samples with the active Vosk or whisper.cpp model.
 - Batch repeat profiles: 1×, 3×, 8×, 20× corpus repeats for aggregate model reports.
 - Benchmark-specific in-app updater for `stt-bench-vX.Y.Z` release APKs.
 - Copy single-run or batch results as Markdown for handover/comparison, including word-error, S/I/D metrics, and tl;dh product-readiness decisions.
 
 ## Engine roadmap in v0.3.x
 
-The app now has a dedicated **Engines** section. This does not yet ship a second working STT backend; it creates the comparison layer needed before introducing the next native/offline engine. The current state is:
+The app now has a dedicated **Engines** section. Vosk and whisper.cpp can be selected independently so the same audios can be measured against the same reference text. The current state is:
 
-- **Vosk Android**: executable baseline and still the only runnable benchmark engine in v0.3.3.
-- **whisper.cpp**: model-preflight and active-target selection in v0.3.3; Native/JNI transcription is the next milestone.
+- **Vosk Android**: executable speed baseline.
+- **whisper.cpp**: first executable on-device comparison path in v0.3.4; uses downloaded `ggml-*.bin` models and the same reference-comparison pipeline.
 - **sherpa-onnx**: planned second non-Vosk mobile candidate after a suitable German model is selected.
 - **LAN/Tower Whisper**: later local-network quality mode for longer or important audios.
 
@@ -101,11 +98,11 @@ No telemetry. No cloud STT. The reference text, downloaded starter samples, and 
 
 ## Longform profiles
 
-After downloading the gold-standard corpus, the **Benchmark** section can generate single WAV test audios of approximately 30 seconds, 90 seconds, or 4 minutes. These files are built locally from real downloaded CC0 reference recordings with short pauses between utterances. The app also creates the matching reference transcript automatically, so WER/CER still compares the recognized Vosk transcript against the intended text.
+After downloading the gold-standard corpus, the **Benchmark** section can generate single WAV test audios of approximately 30 seconds, 90 seconds, or 4 minutes. These files are built locally from real downloaded CC0 reference recordings with short pauses between utterances. The app also creates the matching reference transcript automatically, so WER/CER still compares the recognized transcript of the active STT engine against the intended text.
 
 ## Batch reports
 
-After downloading one or more built-in gold-standard samples and installing a Vosk model, use **Batch starten** to run the active model against every installed reference sample. Choose `1×`, `3×`, `8×`, or `20×` to run longer reproducible workloads. The app summarizes average RTF, WER/CER, speed-pass count, worst WER sample, and per-sample timings. Use **Batch-Report kopieren** to paste the complete Markdown report into GitHub, notes, or the next ChatGPT handover.
+After downloading one or more built-in gold-standard samples and installing a Vosk or Whisper model, use **Batch starten** to run the active model against every installed reference sample. Choose `1×`, `3×`, `8×`, or `20×` to run longer reproducible workloads. The app summarizes average RTF, WER/CER, speed-pass count, worst WER sample, and per-sample timings. Use **Batch-Report kopieren** to paste the complete Markdown report into GitHub, notes, or the next ChatGPT handover.
 
 
 ## In-app updates
