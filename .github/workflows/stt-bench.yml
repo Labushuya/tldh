@@ -16,9 +16,9 @@ permissions:
   contents: write
 
 env:
-  VERSION_NAME: 0.3.4
-  VERSION_CODE: 304
-  RELEASE_TAG: stt-bench-v0.3.4
+  VERSION_NAME: 0.3.6
+  VERSION_CODE: 306
+  RELEASE_TAG: stt-bench-v0.3.6
 
 jobs:
   verify_benchmark_app:

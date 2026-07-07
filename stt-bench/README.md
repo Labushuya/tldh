@@ -1,9 +1,9 @@
 # tl;dh STT Bench
 
 
-## v0.3.4 — first executable whisper.cpp benchmark
+## v0.3.6 — engine-specific model tabs and install-safe version bump
 
-This release activates the first real whisper.cpp path in the benchmark app. It uses the existing Android audio ingest/decode/preprocessing pipeline, writes the prepared 16 kHz mono PCM to a WAV container, and runs the downloaded Whisper model through an Android whisper.cpp wrapper.
+This release keeps the first executable whisper.cpp path and fixes the model UX around it. The Modelle tab is now engine-specific: Vosk Android shows Vosk model folders, whisper.cpp shows Whisper ggml models. The version is bumped to 0.3.6 so it can be installed over corrected 0.3.4 builds without uninstalling first.
 
 - Vosk remains available as the speed baseline.
 - whisper.cpp can now be selected and executed for single benchmarks and batch corpus runs.
@@ -13,15 +13,15 @@ This release activates the first real whisper.cpp path in the benchmark app. It 
 
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.3.4
+## Current release: 0.3.6
 
-Focus: first executable on-device whisper.cpp benchmark. The goal is not final product integration yet, but a fair measured comparison against Vosk on the same real WhatsApp audios and gold-standard references.
+Focus: install-safe fix release after v0.3.6. The goal is still a fair measured comparison between Vosk and whisper.cpp on the same real WhatsApp audios and gold-standard references, with clear separation of model pools.
 
 ## Features
 
 - Separate Android package: `dev.bitsbots.tldhbench`.
 - Share target for WhatsApp/Telegram audio.
-- Vosk German model catalog with live download/delete/cleanup/switching.
+- Engine-specific model catalog with live download/delete/cleanup/switching: Vosk models for Vosk Android, Whisper ggml models for whisper.cpp.
 - Model traffic lights for speed, expected accuracy, and phone suitability.
 - Benchmark timings: decode, model load, STT, total, RTF.
 - Expanded built-in gold-standard corpus with curated German FLAC reference audios from `rhasspy/dataset-voice-kerstin`.
@@ -34,6 +34,7 @@ Focus: first executable on-device whisper.cpp benchmark. The goal is not final p
 - Current run reset button; history reset remains separate.
 - Explicit dark theme/text-field colors so reference fields remain readable.
 - Section-based UI: Start, Engines, Modelle, Goldstandard, Benchmark, Ergebnisse, Updates.
+- Modelle tab now follows the active engine instead of showing Vosk models while whisper.cpp is active.
 - Responsive full-width action buttons with minimum height and centered labels so text does not shift or collapse on phone screens.
 - Generated longform WAV profiles: ~30 seconds, ~90 seconds, and ~4 minutes, each with an automatically built reference transcript.
 - Batch-benchmark all installed gold-standard samples with the active Vosk or whisper.cpp model.
@@ -46,7 +47,7 @@ Focus: first executable on-device whisper.cpp benchmark. The goal is not final p
 The app now has a dedicated **Engines** section. Vosk and whisper.cpp can be selected independently so the same audios can be measured against the same reference text. The current state is:
 
 - **Vosk Android**: executable speed baseline.
-- **whisper.cpp**: first executable on-device comparison path in v0.3.4; uses downloaded `ggml-*.bin` models and the same reference-comparison pipeline.
+- **whisper.cpp**: first executable on-device comparison path in v0.3.6; uses downloaded `ggml-*.bin` models and the same reference-comparison pipeline.
 - **sherpa-onnx**: planned second non-Vosk mobile candidate after a suitable German model is selected.
 - **LAN/Tower Whisper**: later local-network quality mode for longer or important audios.
 

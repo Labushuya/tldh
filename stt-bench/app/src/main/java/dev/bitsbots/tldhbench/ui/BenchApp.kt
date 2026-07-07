@@ -134,16 +134,38 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val whisperModelManager = remember { WhisperModelManager(context) }
     val corpusManager = remember { ReferenceCorpusManager(context) }
     val historyStore = remember { BenchmarkHistoryStore(context) }
+    val uiStatePrefs = remember { context.getSharedPreferences("bench_ui_state", Context.MODE_PRIVATE) }
+    val initiallyInstalledVoskIds = remember { modelManager.installedIds() }
+    val initiallyInstalledWhisperIds = remember { whisperModelManager.installedIds() }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
     var selectedSection by remember { mutableStateOf(BenchSection.Start) }
-    var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
-    var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
-    var selectedWhisperModel by remember { mutableStateOf(WhisperModelCatalog.defaultModel) }
-    var activeEngineId by remember { mutableStateOf("vosk") }
+    var selectedModel by remember {
+        mutableStateOf(
+            VoskModelCatalog.byId(
+                uiStatePrefs.getString("selected_vosk_model_id", VoskModelCatalog.defaultModel.id)
+                    ?: VoskModelCatalog.defaultModel.id
+            )
+        )
+    }
+    var installedIds by remember { mutableStateOf(initiallyInstalledVoskIds) }
+    var selectedWhisperModel by remember {
+        mutableStateOf(
+            WhisperModelCatalog.byId(
+                uiStatePrefs.getString("selected_whisper_model_id", WhisperModelCatalog.defaultModel.id)
+                    ?: WhisperModelCatalog.defaultModel.id
+            )
+        )
+    }
+    val persistedEngineId = remember { uiStatePrefs.getString("active_engine_id", "vosk") ?: "vosk" }
+    var activeEngineId by remember {
+        mutableStateOf(
+            if (persistedEngineId == "whisper-cpp" && initiallyInstalledWhisperIds.isNotEmpty()) "whisper-cpp" else "vosk"
+        )
+    }
     var whisperBusyModelId by remember { mutableStateOf<String?>(null) }
-    var installedWhisperIds by remember { mutableStateOf(whisperModelManager.installedIds()) }
+    var installedWhisperIds by remember { mutableStateOf(initiallyInstalledWhisperIds) }
     var installedSampleIds by remember { mutableStateOf(corpusManager.installedIds()) }
     var selectedSample by remember { mutableStateOf<ReferenceSample?>(null) }
     var selectedLongFormLabel by remember { mutableStateOf<String?>(null) }
@@ -317,6 +339,14 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         }
     }
 
+    LaunchedEffect(activeEngineId, selectedModel.id, selectedWhisperModel.id) {
+        uiStatePrefs.edit()
+            .putString("active_engine_id", activeEngineId)
+            .putString("selected_vosk_model_id", selectedModel.id)
+            .putString("selected_whisper_model_id", selectedWhisperModel.id)
+            .apply()
+    }
+
     LaunchedEffect(selectedSection) {
         scrollState.scrollTo(0)
     }
@@ -438,16 +468,21 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     )
 
                     BenchSection.Models -> ModelsSection(
+                        activeEngineId = activeEngineId,
                         selectedModel = selectedModel,
                         installedIds = installedIds,
+                        selectedWhisperModel = selectedWhisperModel,
+                        installedWhisperIds = installedWhisperIds,
+                        whisperBusyModelId = whisperBusyModelId,
                         busyLabel = busyLabel,
                         progress = progress,
-                        onSelect = { spec ->
+                        onSelectVosk = { spec ->
                             selectedModel = spec
+                            activeEngineId = "vosk"
                             result = null
                             error = null
                         },
-                        onDownload = { spec ->
+                        onDownloadVosk = { spec ->
                             scope.launch {
                                 error = null
                                 result = null
@@ -456,6 +491,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                 runCatching { modelManager.downloadAndInstall(spec) { progress = it } }
                                     .onSuccess {
                                         installedIds = modelManager.installedIds()
+                                        selectedModel = spec
+                                        activeEngineId = "vosk"
                                         busyLabel = null
                                     }
                                     .onFailure {
@@ -466,7 +503,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     }
                             }
                         },
-                        onDelete = { spec ->
+                        onDeleteVosk = { spec ->
                             scope.launch {
                                 error = null
                                 result = null
@@ -481,6 +518,68 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                         error = "Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
                                         selectedSection = BenchSection.Results
                                     }
+                            }
+                        },
+                        onSelectWhisper = { spec ->
+                            selectedWhisperModel = spec
+                            if (installedWhisperIds.contains(spec.id)) activeEngineId = "whisper-cpp"
+                            result = null
+                            error = null
+                        },
+                        onDownloadWhisper = { spec ->
+                            scope.launch {
+                                error = null
+                                result = null
+                                whisperBusyModelId = spec.id
+                                busyLabel = "Download ${spec.displayName}…"
+                                progress = 0
+                                runCatching { whisperModelManager.download(spec) { progress = it } }
+                                    .onSuccess {
+                                        installedWhisperIds = whisperModelManager.installedIds()
+                                        selectedWhisperModel = spec
+                                        activeEngineId = "whisper-cpp"
+                                        busyLabel = null
+                                        whisperBusyModelId = null
+                                        progress = 100
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        whisperBusyModelId = null
+                                        error = "Whisper-Modell-Download fehlgeschlagen (${spec.displayName}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        },
+                        onDeleteWhisper = { spec ->
+                            scope.launch {
+                                error = null
+                                whisperBusyModelId = spec.id
+                                busyLabel = "Lösche ${spec.displayName}…"
+                                runCatching { whisperModelManager.delete(spec) }
+                                    .onSuccess {
+                                        val newInstalledIds = whisperModelManager.installedIds()
+                                        installedWhisperIds = newInstalledIds
+                                        if (spec.id == selectedWhisperModel.id && newInstalledIds.isNotEmpty()) {
+                                            selectedWhisperModel = WhisperModelCatalog.byId(newInstalledIds.first())
+                                        }
+                                        if (newInstalledIds.isEmpty() && activeEngineId == "whisper-cpp") activeEngineId = "vosk"
+                                        busyLabel = null
+                                        whisperBusyModelId = null
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        whisperBusyModelId = null
+                                        error = "Whisper-Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        },
+                        onSwitchToVosk = { activeEngineId = "vosk" },
+                        onSwitchToWhisper = {
+                            if (installedWhisperIds.isNotEmpty()) activeEngineId = "whisper-cpp"
+                            else {
+                                error = "whisper.cpp kann erst aktiv gesetzt werden, wenn mindestens ein Whisper-Modell geladen ist."
+                                selectedSection = BenchSection.Results
                             }
                         }
                     )
@@ -760,8 +859,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.3.4 Fokus") {
-        Text("Diese Version aktiviert den ersten echten whisper.cpp-Einzelbenchmark über dieselbe Audio-/Referenz-/WER-Pipeline. tiny/base/small können jetzt gegen Vosk verglichen werden.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.3.6 Fokus") {
+        Text("Diese Version trennt Engine- und Modellzustand sichtbar und installierbar: Vosk nutzt nur Vosk-Modelle, whisper.cpp nutzt nur Whisper-Modelle. Die aktive Engine bleibt auch nach Android-Share/Neustart erhalten.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -848,7 +947,7 @@ private fun WhisperModelPrepSection(
 ) {
     CardBlock(title = "whisper.cpp Modell-Preflight") {
         Text(
-            "v0.3.4 aktiviert den ersten echten whisper.cpp-Pfad. Die Modelle bleiben separat ladbar; tiny/base/small sollen jetzt real gegen Vosk auf denselben Audios verglichen werden.",
+            "v0.3.6 hält Vosk- und Whisper-Modellpools getrennt. tiny/base/small werden ausschließlich von whisper.cpp genutzt; Small DE/Big DE/TUDA ausschließlich von Vosk Android.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -998,6 +1097,67 @@ private fun EngineCandidateCard(
 
 @Composable
 private fun ModelsSection(
+    activeEngineId: String,
+    selectedModel: VoskModelSpec,
+    installedIds: Set<String>,
+    selectedWhisperModel: WhisperModelSpec,
+    installedWhisperIds: Set<String>,
+    whisperBusyModelId: String?,
+    busyLabel: String?,
+    progress: Int,
+    onSelectVosk: (VoskModelSpec) -> Unit,
+    onDownloadVosk: (VoskModelSpec) -> Unit,
+    onDeleteVosk: (VoskModelSpec) -> Unit,
+    onSelectWhisper: (WhisperModelSpec) -> Unit,
+    onDownloadWhisper: (WhisperModelSpec) -> Unit,
+    onDeleteWhisper: (WhisperModelSpec) -> Unit,
+    onSwitchToVosk: () -> Unit,
+    onSwitchToWhisper: () -> Unit
+) {
+    val whisperActive = activeEngineId == "whisper-cpp"
+    val activePoolLabel = if (whisperActive) "whisper.cpp · Whisper ggml-Modelle" else "Vosk Android · Vosk-Modellordner"
+
+    CardBlock(title = "Aktiver Modellpool") {
+        Text("Aktive Engine: ${if (whisperActive) "whisper.cpp" else "Vosk Android"}", color = TextMain, fontWeight = FontWeight.Bold)
+        Text("Dieser Tab zeigt jetzt bewusst nur die Modelle, die zur aktiven Engine gehören: $activePoolLabel.", color = TextMuted, lineHeight = 20.sp)
+        Text(
+            if (whisperActive) "Vosk-Modelle werden hier nicht eingeblendet, damit kein falscher Eindruck entsteht. Zum Wechsel Vosk Android aktivieren." else "Whisper-Modelle werden hier nicht eingeblendet, damit kein falscher Eindruck entsteht. Zum Wechsel whisper.cpp aktivieren.",
+            color = TextMuted,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        ActionStack {
+            if (whisperActive) SecondaryActionButton("Zu Vosk Android wechseln", onSwitchToVosk, enabled = busyLabel == null)
+            else SecondaryActionButton("Zu whisper.cpp wechseln", onSwitchToWhisper, enabled = busyLabel == null)
+        }
+    }
+
+    if (whisperActive) {
+        WhisperModelPoolSection(
+            selectedModel = selectedWhisperModel,
+            installedIds = installedWhisperIds,
+            busyModelId = whisperBusyModelId,
+            busyLabel = busyLabel,
+            progress = progress,
+            onSelect = onSelectWhisper,
+            onDownload = onDownloadWhisper,
+            onDelete = onDeleteWhisper
+        )
+    } else {
+        VoskModelPoolSection(
+            selectedModel = selectedModel,
+            installedIds = installedIds,
+            busyLabel = busyLabel,
+            progress = progress,
+            onSelect = onSelectVosk,
+            onDownload = onDownloadVosk,
+            onDelete = onDeleteVosk
+        )
+    }
+}
+
+@Composable
+private fun VoskModelPoolSection(
     selectedModel: VoskModelSpec,
     installedIds: Set<String>,
     busyLabel: String?,
@@ -1006,8 +1166,8 @@ private fun ModelsSection(
     onDownload: (VoskModelSpec) -> Unit,
     onDelete: (VoskModelSpec) -> Unit
 ) {
-    CardBlock(title = "Vosk Modelle") {
-        Text("Installieren, auswählen, danach ohne App-Neustart benchmarken. Ampel: Geschwindigkeit / Genauigkeit / Handy-Eignung.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "Vosk Modelle · nur Vosk Android") {
+        Text("Installieren, auswählen, danach ohne App-Neustart mit Vosk benchmarken. Diese Modelle werden von whisper.cpp nicht verwendet.", color = TextMuted, lineHeight = 20.sp)
         Text("Wenn ein Download beim Entpacken abbricht, nutze beim betroffenen Modell zuerst 'Lokale Reste bereinigen' und starte danach den Download neu.", color = TextMuted, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
         VoskModelCatalog.models.forEach { spec ->
@@ -1025,6 +1185,39 @@ private fun ModelsSection(
             Spacer(Modifier.height(10.dp))
         }
         if (busyLabel?.startsWith("Download") == true) Text("$busyLabel $progress%", color = TextMuted)
+    }
+}
+
+@Composable
+private fun WhisperModelPoolSection(
+    selectedModel: WhisperModelSpec,
+    installedIds: Set<String>,
+    busyModelId: String?,
+    busyLabel: String?,
+    progress: Int,
+    onSelect: (WhisperModelSpec) -> Unit,
+    onDownload: (WhisperModelSpec) -> Unit,
+    onDelete: (WhisperModelSpec) -> Unit
+) {
+    CardBlock(title = "Whisper Modelle · nur whisper.cpp") {
+        Text("Diese Modelle gehören ausschließlich zur whisper.cpp Engine und werden nicht von Vosk Android verwendet.", color = TextMuted, lineHeight = 20.sp)
+        Text("Nutze zuerst tiny/base für Stabilität; small ist der erste stärkere Qualitätskandidat, aber deutlich schwerer für das Handy.", color = Warn, fontSize = 13.sp, lineHeight = 18.sp)
+        Spacer(Modifier.height(8.dp))
+        WhisperModelCatalog.models.forEach { spec ->
+            WhisperModelCard(
+                spec = spec,
+                selected = selectedModel.id == spec.id,
+                installed = installedIds.contains(spec.id),
+                busy = busyLabel != null,
+                downloading = busyModelId == spec.id,
+                progress = progress,
+                busyLabel = busyLabel,
+                onSelect = { onSelect(spec) },
+                onDownload = { onDownload(spec) },
+                onDelete = { onDelete(spec) }
+            )
+            Spacer(Modifier.height(10.dp))
+        }
     }
 }
 

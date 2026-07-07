@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.6 - installable engine-specific model tab
+
+### Fixed
+- Replace the previously incomplete 0.3.5 handover package with a real code patch.
+- Bump benchmark app version to 0.3.6 / versionCode 306 so Android can install it over corrected 0.3.4 builds without uninstall/downgrade workarounds.
+- Move engine-specific model selection into the Modelle tab: when whisper.cpp is active, the Modelle tab shows Whisper ggml models; when Vosk Android is active, it shows Vosk model folders.
+- Make model selection/download switch the active engine to the matching engine, preventing the misleading impression that Whisper is using Vosk models.
+- Include the v0.3.4 whisper suspend compile fix in the same package.
+- Persist the active engine and selected Vosk/Whisper model in app preferences, so Android Share does not silently fall back to Vosk after relaunch/re-entry.
+- Keep external shared audios from resetting engine state; share handling now clears only audio/reference result state, not the active engine.
+
+### Changed
+- Release tag moves to `stt-bench-v0.3.6`.
+- Workflow and Gradle version defaults move to `0.3.6` / versionCode `306`.
+
 ## 0.3.4 - executable whisper.cpp benchmark
 
 ### Added

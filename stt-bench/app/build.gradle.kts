@@ -5,10 +5,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.3.4"
+    ?: "0.3.6"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "304").toInt()
+    ?: "306").toInt()
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 val githubRepositoryRaw = (findProperty("GITHUB_REPOSITORY") as String?)
@@ -90,7 +90,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // First real German/offline mobile STT candidate.
-    implementation("com.alphacephei:vosk-android:0.3.47")
+    implementation("com.alphacephei:vosk-android:0.3.67")
 
     // Second offline candidate: Android wrapper around whisper.cpp.
     implementation("mx.valdora:whisper-android:1.0.0")
