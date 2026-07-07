@@ -1,8 +1,8 @@
 # Benchmark Plan
 
-## v0.2.9 focus
+## v0.3.2 focus
 
-Measure Vosk model speed and recognition quality on real German audio with explicit active-audio source tracking, word-level deviation analysis, conservative non-speech reduction, generated 30s/90s/4min longform profiles, repeatable batch reports, and safer phone behavior for long/large model tests.
+Keep Vosk as the executable baseline and start the practical whisper.cpp path with model-preflight: download, storage, cleanup and candidate selection for tiny/base/small before enabling Native/JNI transcription.
 
 ## Test flow
 
@@ -66,3 +66,13 @@ Product-readiness thresholds used by the app:
 - <= 25% WER and RTF <= 1.0: only with visible guardrails and full transcript review.
 - > 25-35% WER: preview-only / not enough for automatic TL;DR.
 - High deletion count: risky even if CER looks acceptable, because missing negations, times, names or numbers can invert meaning.
+
+
+## v0.3.2 whisper.cpp preflight protocol
+
+1. Open **Engines**.
+2. Download `Whisper tiny` first. Confirm the model reaches `bereit`.
+3. Repeat with `Whisper base` if storage and download time are acceptable.
+4. Download `Whisper small` only as a deliberate quality-candidate preparation step.
+5. No Whisper benchmark is expected yet in v0.3.2. Vosk remains the executable engine until the Native/JNI adapter lands.
+6. v0.3.3 target: use the already prepared PCM file and reference-comparison pipeline, run whisper.cpp, then compare WER/CER/S/I/D and RTF against the same Vosk reports.

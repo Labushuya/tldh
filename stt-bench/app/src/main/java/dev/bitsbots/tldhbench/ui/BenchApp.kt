@@ -71,6 +71,8 @@ import dev.bitsbots.tldhbench.bench.Signal
 import dev.bitsbots.tldhbench.bench.VoskModelCatalog
 import dev.bitsbots.tldhbench.bench.VoskModelSpec
 import dev.bitsbots.tldhbench.bench.WordDiffType
+import dev.bitsbots.tldhbench.bench.WhisperModelCatalog
+import dev.bitsbots.tldhbench.bench.WhisperModelSpec
 import dev.bitsbots.tldhbench.audio.LongFormAudioComposer
 import dev.bitsbots.tldhbench.audio.LongFormProfile
 import dev.bitsbots.tldhbench.audio.LongFormProfiles
@@ -80,6 +82,7 @@ import dev.bitsbots.tldhbench.corpus.ReferenceSample
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryItem
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryStore
 import dev.bitsbots.tldhbench.models.VoskModelManager
+import dev.bitsbots.tldhbench.models.WhisperModelManager
 import dev.bitsbots.tldhbench.share.AudioSourceKind
 import dev.bitsbots.tldhbench.share.SharedAudio
 import dev.bitsbots.tldhbench.updates.ApkInstaller
@@ -128,6 +131,7 @@ private val BenchColorScheme = darkColorScheme(
 fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val context = LocalContext.current
     val modelManager = remember { VoskModelManager(context) }
+    val whisperModelManager = remember { WhisperModelManager(context) }
     val corpusManager = remember { ReferenceCorpusManager(context) }
     val historyStore = remember { BenchmarkHistoryStore(context) }
     val scope = rememberCoroutineScope()
@@ -136,6 +140,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var selectedSection by remember { mutableStateOf(BenchSection.Start) }
     var selectedModel by remember { mutableStateOf(VoskModelCatalog.defaultModel) }
     var installedIds by remember { mutableStateOf(modelManager.installedIds()) }
+    var selectedWhisperModel by remember { mutableStateOf(WhisperModelCatalog.defaultModel) }
+    var installedWhisperIds by remember { mutableStateOf(whisperModelManager.installedIds()) }
     var installedSampleIds by remember { mutableStateOf(corpusManager.installedIds()) }
     var selectedSample by remember { mutableStateOf<ReferenceSample?>(null) }
     var selectedLongFormLabel by remember { mutableStateOf<String?>(null) }
@@ -339,6 +345,46 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     )
 
                     BenchSection.Engines -> EnginesSection(
+                        selectedWhisperModel = selectedWhisperModel,
+                        installedWhisperIds = installedWhisperIds,
+                        busyLabel = busyLabel,
+                        progress = progress,
+                        onSelectWhisper = { selectedWhisperModel = it },
+                        onDownloadWhisper = { spec ->
+                            scope.launch {
+                                error = null
+                                result = null
+                                busyLabel = "Download Whisper ${spec.displayName}…"
+                                progress = 0
+                                runCatching { whisperModelManager.download(spec) { progress = it } }
+                                    .onSuccess {
+                                        installedWhisperIds = whisperModelManager.installedIds()
+                                        busyLabel = null
+                                        progress = 100
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        error = "Whisper-Modell-Download fehlgeschlagen (${spec.displayName}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        },
+                        onDeleteWhisper = { spec ->
+                            scope.launch {
+                                error = null
+                                busyLabel = "Lösche ${spec.displayName}…"
+                                runCatching { whisperModelManager.delete(spec) }
+                                    .onSuccess {
+                                        installedWhisperIds = whisperModelManager.installedIds()
+                                        busyLabel = null
+                                    }
+                                    .onFailure {
+                                        busyLabel = null
+                                        error = "Whisper-Modell konnte nicht gelöscht werden (${spec.displayName}): ${it.message}"
+                                        selectedSection = BenchSection.Results
+                                    }
+                            }
+                        },
                         onGoModels = { selectedSection = BenchSection.Models },
                         onGoRun = { selectedSection = BenchSection.Run }
                     )
@@ -643,7 +689,7 @@ private fun StartSection(
     CardBlock(title = "Geführter Ablauf") {
         Text("Version v$appVersion · separater STT-Benchmark. Die Haupt-App tl;dh bleibt unberührt.", color = TextMuted, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
-        StepText("1", "Engine-Strategie prüfen", "Vosk ist die aktive Baseline; whisper.cpp, sherpa-onnx und LAN/Tower sind als nächste Vergleichspfade sichtbar.")
+        StepText("1", "Engine-Strategie prüfen", "Vosk ist die aktive Baseline; whisper.cpp kann jetzt als Modell-/Speicher-Preflight vorbereitet werden.")
         StepText("2", "Vosk-Modell installieren oder wechseln", "Small DE fürs Handy, Big DE als Qualitäts-/Stressprobe.")
         StepText("3", "Goldstandard oder eigene Shared-Audio nutzen", "Für Wortabweichungen braucht die App immer ein korrektes Referenztranskript.")
         StepText("4", "Benchmark starten und Produktentscheidung lesen", "Ergebnis zeigt jetzt zusätzlich, ob diese Engine/Modell-Kombination tl;dh-tauglich wäre.")
@@ -656,8 +702,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.3.0 Fokus") {
-        Text("Diese Version startet die Engine-Schicht: Vosk bleibt die aktive Baseline, weitere Engines werden als Kandidaten geführt und Ergebnisse werden zusätzlich auf Produktreife für tl;dh bewertet.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.3.2 Fokus") {
+        Text("Diese Version startet den praktischen whisper.cpp-Pfad: Modellkatalog, Download, Speicherprüfung und klare Vorbereitung für die nächste Native/JNI-Transkription. Vosk bleibt bis dahin die einzige ausführbare Engine.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -679,12 +725,19 @@ private fun StepText(number: String, title: String, body: String) {
 
 @Composable
 private fun EnginesSection(
+    selectedWhisperModel: WhisperModelSpec,
+    installedWhisperIds: Set<String>,
+    busyLabel: String?,
+    progress: Int,
+    onSelectWhisper: (WhisperModelSpec) -> Unit,
+    onDownloadWhisper: (WhisperModelSpec) -> Unit,
+    onDeleteWhisper: (WhisperModelSpec) -> Unit,
     onGoModels: () -> Unit,
     onGoRun: () -> Unit
 ) {
     CardBlock(title = "Engine-Schicht / Kandidaten") {
         Text(
-            "Vosk bleibt die aktive Baseline. v0.3.0 macht die nächsten STT-Pfade bewusst sichtbar, damit spätere Messungen dieselben Audios, Referenzen und Kriterien nutzen.",
+            "Vosk bleibt die aktive Benchmark-Baseline. whisper.cpp ist jetzt als nächster On-Device-Pfad vorbereitet: Modelle laden, Speicher prüfen, danach Native/JNI-Transkription aktivieren.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -698,9 +751,111 @@ private fun EnginesSection(
             SecondaryActionButton("Zum Benchmark", onGoRun)
         }
     }
+    WhisperModelPrepSection(
+        selectedModel = selectedWhisperModel,
+        installedIds = installedWhisperIds,
+        busyLabel = busyLabel,
+        progress = progress,
+        onSelect = onSelectWhisper,
+        onDownload = onDownloadWhisper,
+        onDelete = onDeleteWhisper
+    )
     CardBlock(title = "Messlatte für tl;dh") {
         Text("Produktintegration erst bei echten Audios mit Referenztext. Ziel: deutlich unter 25 % WER; ideal eher <= 15 % WER, geringe Deletions und RTF <= 1,0.", color = TextMuted, lineHeight = 20.sp)
         Text("Vosk Small/Big lagen in Deinem Realtest bei ca. 40–47 % WER. Damit: gute Speed-Baseline, aber noch kein sicherer Summary-Unterbau.", color = Warn, lineHeight = 20.sp)
+    }
+}
+
+@Composable
+private fun WhisperModelPrepSection(
+    selectedModel: WhisperModelSpec,
+    installedIds: Set<String>,
+    busyLabel: String?,
+    progress: Int,
+    onSelect: (WhisperModelSpec) -> Unit,
+    onDownload: (WhisperModelSpec) -> Unit,
+    onDelete: (WhisperModelSpec) -> Unit
+) {
+    CardBlock(title = "whisper.cpp Modell-Preflight") {
+        Text(
+            "v0.3.2 lädt noch keine Native Engine und transkribiert noch nicht mit Whisper. Ziel ist bewusst der belastbare Vorlauf: Modellgrößen, Download, Speicher und Bedienpfad testen, bevor JNI/C++ in v0.3.3 aktiviert wird.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Text(
+            "Nutze zuerst tiny oder base. small ist der erste echte Qualitätskandidat, kann auf dem Handy aber Laufzeit und Akku deutlich stärker belasten.",
+            color = Warn,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        WhisperModelCatalog.models.forEach { spec ->
+            WhisperModelCard(
+                spec = spec,
+                selected = selectedModel.id == spec.id,
+                installed = installedIds.contains(spec.id),
+                busy = busyLabel != null,
+                progress = progress,
+                busyLabel = busyLabel,
+                onSelect = { onSelect(spec) },
+                onDownload = { onDownload(spec) },
+                onDelete = { onDelete(spec) }
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+@Composable
+private fun WhisperModelCard(
+    spec: WhisperModelSpec,
+    selected: Boolean,
+    installed: Boolean,
+    busy: Boolean,
+    progress: Int,
+    busyLabel: String?,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val border = when {
+        selected -> Accent2
+        installed -> Good
+        else -> FieldBorder
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(spec.displayName, color = TextMain, fontWeight = FontWeight.Bold)
+                Text("${spec.sizeLabel} · RAM ${spec.memoryLabel}", color = TextMuted, fontSize = 13.sp)
+            }
+            Text(if (installed) "bereit" else "nicht geladen", color = if (installed) Good else TextMuted, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SignalChip("Speed", spec.speedSignal)
+            SignalChip("Qualität", spec.expectedAccuracySignal)
+            SignalChip("Phone", spec.phoneSignal)
+        }
+        Text(spec.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        if (busyLabel?.contains("Whisper") == true) {
+            LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            Text("$busyLabel $progress%", color = TextMuted, fontSize = 13.sp)
+        }
+        ActionStack {
+            if (installed) {
+                PrimaryActionButton(if (selected) "Whisper-Modell ausgewählt" else "Als Whisper-Kandidat wählen", onSelect, enabled = !busy)
+                SecondaryActionButton("Whisper-Modell löschen", onDelete, enabled = !busy)
+            } else {
+                SecondaryActionButton("Whisper-Modell laden", onDownload, enabled = !busy)
+            }
+        }
     }
 }
 

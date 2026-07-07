@@ -5,10 +5,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.3.1"
+    ?: "0.3.2"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "301").toInt()
+    ?: "302").toInt()
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 val githubRepositoryRaw = (findProperty("GITHUB_REPOSITORY") as String?)

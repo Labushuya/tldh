@@ -33,12 +33,12 @@ object SttEngineCatalog {
         SttEngineSpec(
             id = "whisper-cpp",
             displayName = "whisper.cpp",
-            shortLabel = "nächster Kandidat",
+            shortLabel = "Modell-Prep",
             readiness = SttEngineReadiness.NEXT_CANDIDATE,
-            localMode = "On-device · offline · Native/JNI-Integration nötig",
+            localMode = "On-device · offline · Modell-Prep aktiv · Native/JNI als nächster Schritt",
             expectedStrength = "Voraussichtlich deutlich robuster bei freier deutscher Sprache, Hintergrundgeräuschen und spontaner WhatsApp-Sprache.",
             expectedRisk = "Wahrscheinlich langsamer und größer als Vosk; Modellverwaltung und Native-Build müssen sauber in die Bench-App integriert werden.",
-            nextStep = "v0.3.x: zuerst Engine-Adapter und Modellkatalog vorbereiten, danach tiny/base/small quantisiert messen."
+            nextStep = "v0.3.2: tiny/base/small Modellverwaltung testen. v0.3.3: Native/JNI-Transkription aktivieren und gegen dieselben Referenzen messen."
         ),
         SttEngineSpec(
             id = "sherpa-onnx",

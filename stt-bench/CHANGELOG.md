@@ -1,5 +1,19 @@
 # Changelog
 
+
+## 0.3.2 - whisper.cpp model preflight
+
+### Added
+- Add `whisper.cpp` model-preflight support in the Engine section.
+- Add downloadable multilingual ggml Whisper candidates: `tiny`, `base`, and `small`.
+- Add local Whisper model manager for direct `.bin` downloads, install detection, cleanup and progress reporting.
+- Document the intended v0.3.3 next step: Native/JNI whisper.cpp execution against the existing PCM/reference/WER pipeline.
+
+### Changed
+- Keep Vosk as the only executable STT engine in this release. whisper.cpp is prepared, but not yet used for transcription.
+- Release tag moves to `stt-bench-v0.3.2`.
+- Workflow and Gradle version defaults move to `0.3.2` / versionCode `302`.
+
 ## 0.3.1 - Zamia cleanup and permissive model validation
 
 ### Fixed

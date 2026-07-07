@@ -1,10 +1,23 @@
 # tl;dh STT Bench
 
+
+## v0.3.2 — whisper.cpp model preflight
+
+This release starts the practical whisper.cpp path without yet enabling native transcription:
+
+- Adds a whisper.cpp model-preflight area in the Engine section.
+- Adds downloadable multilingual ggml model candidates: `tiny`, `base`, `small`.
+- Keeps Vosk as the only executable benchmark engine for this release.
+- Prepares the next step: Native/JNI whisper.cpp execution against the same audio/reference pipeline.
+
+Recommended first test order on phone: `Whisper tiny` → `Whisper base` → only then `Whisper small` if storage/battery/time are acceptable.
+
+
 Separate Android benchmark app for testing local German STT engines before anything is integrated into the main `tl;dh` app.
 
-## Current release: 0.3.1
+## Current release: 0.3.2
 
-Focus: engine strategy layer plus cleanup/hardening for failed Vosk model installs. Vosk remains the active baseline, while whisper.cpp, sherpa-onnx, and LAN/Tower Quality Mode are visible as next benchmark candidates. Result reports state whether a run is suitable for tl;dh integration, needs heavy guardrails, or must be blocked. v0.3.1 additionally adds a visible cleanup action for failed/partial model downloads, especially `Small DE Zamia 0.3`.
+Focus: practical whisper.cpp preparation. Vosk remains the only executable STT engine, but the Engines section can now download and manage multilingual whisper.cpp `tiny`, `base`, and `small` ggml model files. This verifies storage/download/model handling before the Native/JNI transcription adapter is added in the next step.
 
 ## Features
 
@@ -34,8 +47,8 @@ Focus: engine strategy layer plus cleanup/hardening for failed Vosk model instal
 
 The app now has a dedicated **Engines** section. This does not yet ship a second working STT backend; it creates the comparison layer needed before introducing the next native/offline engine. The current state is:
 
-- **Vosk Android**: active baseline and still the only executable engine in v0.3.1.
-- **whisper.cpp**: next on-device/offline candidate for v0.3.x integration.
+- **Vosk Android**: active baseline and still the only executable engine in v0.3.2.
+- **whisper.cpp**: model-preflight active in v0.3.2; Native/JNI transcription is the next milestone.
 - **sherpa-onnx**: planned second non-Vosk mobile candidate after a suitable German model is selected.
 - **LAN/Tower Whisper**: later local-network quality mode for longer or important audios.
 
