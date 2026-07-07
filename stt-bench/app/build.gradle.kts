@@ -90,7 +90,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // First real German/offline mobile STT candidate.
-    implementation("com.alphacephei:vosk-android:0.3.67")
+    implementation("com.alphacephei:vosk-android:0.3.47")
 
     // Second offline candidate: Android wrapper around whisper.cpp.
     implementation("mx.valdora:whisper-android:1.0.0")
