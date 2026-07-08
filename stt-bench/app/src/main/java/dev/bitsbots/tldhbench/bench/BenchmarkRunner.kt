@@ -27,31 +27,50 @@ class BenchmarkRunner(private val context: Context) {
             throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Modell herunterladen/installieren.")
         }
         if (modelSpec.deviceSignal == Signal.RED) {
-            throw IllegalStateException("${modelSpec.displayName} ist auf Android absichtlich blockiert: dieses Modell kann beim nativen Vosk-Laden die App hart beenden. Für diesen Extremtest bitte später Tower/LAN-Quality-Mode nutzen.")
+            throw IllegalStateException(
+                "${modelSpec.displayName} ist auf Android absichtlich blockiert: dieses Modell kann beim nativen Vosk-Laden die App hart beenden. " +
+                    "Für diesen Extremtest bitte später Tower/LAN-Quality-Mode nutzen."
+            )
         }
+
         val started = System.currentTimeMillis()
         val metadata = AudioIngestor(context).inspect(sharedAudio)
-        val workDir = File(context.cacheDir, "bench-work").apply { deleteRecursively(); mkdirs() }
+        val workDir = File(context.cacheDir, "bench-work").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+
         lateinit var prepared: PreparedPcmAudio
         val decodeMs = measureTimeMillis {
             prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
         }
+
         val engineOutput = VoskBenchmarkEngine().transcribe(
             modelDir = voskModelManager.modelDir(modelSpec),
             pcm = prepared,
             decodeMs = decodeMs,
             totalStartedAtMs = started
         )
+
         val timing = BenchmarkTiming(
             decodeMs = decodeMs,
             modelLoadMs = engineOutput.modelLoadMs,
             sttMs = engineOutput.sttMs,
             totalMs = engineOutput.totalMs,
-            audioDurationMs = metadata.durationMs
+            audioDurationMs = metadata.durationMs ?: prepared.durationMs
         )
+
         val modelWarnings = listOfNotNull(
-            if (modelSpec.deviceSignal == Signal.RED) "${modelSpec.displayName} ist laut Ampel eher kein Handy-Modell. Benchmark kann RAM/Download/Zeit stark belasten." else null,
-            if (modelSpec.speedSignal == Signal.RED) "${modelSpec.displayName} priorisiert Qualität gegenüber Geschwindigkeit. RTF kritisch prüfen." else null
+            if (modelSpec.deviceSignal == Signal.RED) {
+                "${modelSpec.displayName} ist laut Ampel eher kein Handy-Modell. Benchmark kann RAM/Download/Zeit stark belasten."
+            } else {
+                null
+            },
+            if (modelSpec.speedSignal == Signal.RED) {
+                "${modelSpec.displayName} priorisiert Qualität gegenüber Geschwindigkeit. RTF kritisch prüfen."
+            } else {
+                null
+            }
         )
         val referenceComparison = ReferenceTextComparator.compare(referenceText, engineOutput.transcript)
         val comparisonWarnings = comparisonWarnings(referenceComparison)
@@ -66,7 +85,7 @@ class BenchmarkRunner(private val context: Context) {
             timing = timing,
             transcript = engineOutput.transcript,
             segments = engineOutput.segments,
-            verdict = BenchmarkTargets.verdict(metadata.durationMs, timing.totalMs),
+            verdict = BenchmarkTargets.verdict(timing.audioDurationMs, timing.totalMs),
             warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + preprocessingWarnings + comparisonWarnings,
             referenceComparison = referenceComparison
         )
@@ -80,26 +99,32 @@ class BenchmarkRunner(private val context: Context) {
         if (!whisperModelManager.isInstalled(modelSpec)) {
             throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Whisper-Modell herunterladen.")
         }
+
         val started = System.currentTimeMillis()
         val metadata = AudioIngestor(context).inspect(sharedAudio)
-        val workDir = File(context.cacheDir, "bench-work-whisper").apply { deleteRecursively(); mkdirs() }
+        val workDir = File(context.cacheDir, "bench-work-whisper").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+
         lateinit var prepared: PreparedPcmAudio
         val decodeMs = measureTimeMillis {
             prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
         }
+
         val effectiveAudioDurationMs = metadata.durationMs ?: prepared.durationMs ?: 0L
         val whisperTimeoutMs = whisperTimeoutMs(effectiveAudioDurationMs, modelSpec)
         val engineOutput = try {
             withTimeout(whisperTimeoutMs) {
-                WhisperRuntimeGate.runExclusive {
-                    WhisperBenchmarkEngine(context).transcribe(
-                        modelFile = whisperModelManager.modelFile(modelSpec),
-                        pcm = prepared,
-                        decodeMs = decodeMs,
-                        totalStartedAtMs = started,
-                        workDir = workDir
-                    )
-                }
+                // WhisperBenchmarkEngine already serializes native whisper.cpp calls internally.
+                // Keeping a second missing gate here broke v0.3.8 compilation.
+                WhisperBenchmarkEngine(context).transcribe(
+                    modelFile = whisperModelManager.modelFile(modelSpec),
+                    pcm = prepared,
+                    decodeMs = decodeMs,
+                    totalStartedAtMs = started,
+                    workDir = workDir
+                )
             }
         } catch (timeout: TimeoutCancellationException) {
             throw IllegalStateException(
@@ -109,6 +134,7 @@ class BenchmarkRunner(private val context: Context) {
                 timeout
             )
         }
+
         val timing = BenchmarkTiming(
             decodeMs = decodeMs,
             modelLoadMs = engineOutput.modelLoadMs,
@@ -116,9 +142,18 @@ class BenchmarkRunner(private val context: Context) {
             totalMs = engineOutput.totalMs,
             audioDurationMs = metadata.durationMs ?: prepared.durationMs
         )
+
         val modelWarnings = listOfNotNull(
-            if (modelSpec.speedSignal == Signal.RED) "${modelSpec.displayName} ist ein Qualitätskandidat. Laufzeit, Akku und RTF kritisch prüfen." else null,
-            if (modelSpec.phoneSignal == Signal.YELLOW) "${modelSpec.displayName} kann auf dem Handy spürbar RAM/Akku belasten. Bei Hängern zuerst tiny/base vergleichen." else null,
+            if (modelSpec.speedSignal == Signal.RED) {
+                "${modelSpec.displayName} ist ein Qualitätskandidat. Laufzeit, Akku und RTF kritisch prüfen."
+            } else {
+                null
+            },
+            if (modelSpec.phoneSignal == Signal.YELLOW) {
+                "${modelSpec.displayName} kann auf dem Handy spürbar RAM/Akku belasten. Bei Hängern zuerst tiny/base vergleichen."
+            } else {
+                null
+            },
             "Whisper Runtime-Guard aktiv: native whisper.cpp-Läufe werden serialisiert und per Watchdog überwacht. UI-Fortschritt während STT ist eine Laufzeit-/Watchdog-Anzeige, keine echte Token-Progress-Meldung der Native-Library."
         )
         val referenceComparison = ReferenceTextComparator.compare(referenceText, engineOutput.transcript)
@@ -154,7 +189,8 @@ class BenchmarkRunner(private val context: Context) {
         return maxOf(minimum, (audioDurationMs * multiplier).toLong() + 120_000L)
     }
 
-    private fun formatTimeoutSeconds(ms: Long): String = "%.0f s".format(java.util.Locale.GERMANY, ms / 1000.0)
+    private fun formatTimeoutSeconds(ms: Long): String =
+        "%.0f s".format(java.util.Locale.GERMANY, ms / 1000.0)
 
     private fun comparisonWarnings(referenceComparison: ReferenceComparison?): List<String> = listOfNotNull(
         referenceComparison?.takeIf { it.werPercent > 40.0 }?.let {
@@ -170,7 +206,10 @@ class BenchmarkRunner(private val context: Context) {
             "Nicht-Sprache-Reduktion aktiv: ca. ${formatSeconds(it.removedMs)} (${formatPercent(it.removedPercent)}) leise/pausierte PCM-Anteile vor $engineLabel entfernt. Timing-Verdict bleibt auf Originaldauer bezogen."
         }
     )
-}
 
-private fun formatSeconds(ms: Long): String = "%.2f s".format(java.util.Locale.GERMANY, ms / 1000.0)
-private fun formatPercent(value: Double): String = "%.1f%%".format(java.util.Locale.GERMANY, value)
+    private fun formatSeconds(ms: Long): String =
+        "%.2f s".format(java.util.Locale.GERMANY, ms / 1000.0)
+
+    private fun formatPercent(value: Double): String =
+        "%.1f%%".format(java.util.Locale.GERMANY, value)
+}
