@@ -1,3 +1,14 @@
+# v0.3.8 — Whisper Watchdog + Download Progress
+
+- Whisper-Runner defensiver gemacht: native whisper.cpp Läufe werden seriell ausgeführt, bekommen frische Temp-WAV-Dateien, geben Modelle explizit frei und bereinigen Temp-Dateien nach jedem Lauf.
+- Whisper-Läufe erhalten modellabhängige Timeouts, damit die UI bei hängenden Läufen nicht dauerhaft im Benchmark-Zustand bleibt.
+- Fehlerhinweise nennen jetzt klar den Recovery-Pfad, falls die native Library nach einem schweren Lauf weiter hängt: App komplett schließen und neu öffnen.
+- Whisper small Download-Fortschritt verbessert: nutzt erwartete Modellgrößen als Fallback, falls CDN/Host kein brauchbares Content-Length liefert. Dadurch bleibt small nicht dauerhaft bei 0 %.
+- Whisper-Downloads prüfen jetzt plausible Zielgröße und melden unvollständige Dateien deutlicher.
+- Release: `stt-bench-v0.3.8`, APK: `tldh-stt-bench-0.3.8.apk`.
+
+---
+
 # v0.3.7 — Whisper German Lock
 
 - Whisper-Engine von `mx.valdora:whisper-android` auf `dev.ffmpegkit-maintained:whisper-android:1.0.0` umgestellt.

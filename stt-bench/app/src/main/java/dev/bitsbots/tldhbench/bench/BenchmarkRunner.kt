@@ -9,6 +9,7 @@ import dev.bitsbots.tldhbench.models.WhisperModelManager
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import kotlin.system.measureTimeMillis
 
@@ -85,13 +86,16 @@ class BenchmarkRunner(private val context: Context) {
         val decodeMs = measureTimeMillis {
             prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
         }
-        val engineOutput = WhisperBenchmarkEngine(context).transcribe(
-            modelFile = whisperModelManager.modelFile(modelSpec),
-            pcm = prepared,
-            decodeMs = decodeMs,
-            totalStartedAtMs = started,
-            workDir = workDir
-        )
+        val timeoutMs = whisperTimeoutMs(metadata.durationMs, modelSpec)
+        val engineOutput = withTimeout(timeoutMs) {
+            WhisperBenchmarkEngine(context).transcribe(
+                modelFile = whisperModelManager.modelFile(modelSpec),
+                pcm = prepared,
+                decodeMs = decodeMs,
+                totalStartedAtMs = started,
+                workDir = workDir
+            )
+        }
         val timing = BenchmarkTiming(
             decodeMs = decodeMs,
             modelLoadMs = engineOutput.modelLoadMs,
@@ -120,6 +124,22 @@ class BenchmarkRunner(private val context: Context) {
             warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + preprocessingWarnings + comparisonWarnings,
             referenceComparison = referenceComparison
         )
+    }
+
+    private fun whisperTimeoutMs(audioDurationMs: Long, modelSpec: WhisperModelSpec): Long {
+        val base = when (modelSpec.id) {
+            "tiny" -> 120_000L
+            "base" -> 210_000L
+            "small" -> 420_000L
+            else -> 240_000L
+        }
+        val durationBound = when (modelSpec.id) {
+            "tiny" -> audioDurationMs * 6L
+            "base" -> audioDurationMs * 9L
+            "small" -> audioDurationMs * 14L
+            else -> audioDurationMs * 10L
+        }
+        return maxOf(base, durationBound).coerceAtMost(900_000L)
     }
 
     private fun comparisonWarnings(referenceComparison: ReferenceComparison?): List<String> = listOfNotNull(

@@ -252,7 +252,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             }.onFailure {
                 busyLabel = null
                 val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
-                error = "Benchmark fehlgeschlagen ($activeModelName): ${it.message}"
+                val recoveryHint = if (activeEngineId == "whisper-cpp") "\n\nWhisper-Recovery: Wenn danach kein weiterer Whisper-Lauf startet, App einmal komplett schließen und neu öffnen. v0.3.8 bereinigt Temp-Dateien/Modelle pro Lauf; native Library-Zustände können bei schweren Läufen trotzdem hängen bleiben." else ""
+                error = "Benchmark fehlgeschlagen ($activeModelName): ${it.message}$recoveryHint"
                 selectedSection = BenchSection.Results
             }
         }
@@ -307,7 +308,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     history = historyStore.load()
                 }.onFailure { throwable ->
                     busyLabel = null
-                    error = "Batch-Benchmark fehlgeschlagen ($activeModelName): ${throwable.message}"
+                    val recoveryHint = if (activeEngineId == "whisper-cpp") "\n\nWhisper-Recovery: Batch mit tiny/base erneut versuchen. Wenn die App danach keine Whisper-Läufe mehr startet, App komplett schließen und neu öffnen; small bitte zuerst nur als Einzelbenchmark testen." else ""
+                    error = "Batch-Benchmark fehlgeschlagen ($activeModelName): ${throwable.message}$recoveryHint"
                     if (results.isNotEmpty()) batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
                     selectedSection = BenchSection.Results
                     return@launch
@@ -947,7 +949,7 @@ private fun WhisperModelPrepSection(
 ) {
     CardBlock(title = "whisper.cpp Modell-Preflight") {
         Text(
-            "v0.3.6 hält Vosk- und Whisper-Modellpools getrennt. tiny/base/small werden ausschließlich von whisper.cpp genutzt; Small DE/Big DE/TUDA ausschließlich von Vosk Android.",
+            "v0.3.8 hält Vosk- und Whisper-Modellpools getrennt. tiny/base/small werden ausschließlich von whisper.cpp genutzt; Small DE/Big DE/TUDA ausschließlich von Vosk Android.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -1029,8 +1031,12 @@ private fun WhisperModelCard(
         }
         Text(spec.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         if (downloading) {
-            LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            Text("${busyLabel.orEmpty()} $progress%", color = TextMuted, fontSize = 13.sp)
+            val visibleProgress = progress.coerceIn(1, 100)
+            LinearProgressIndicator(progress = { (visibleProgress / 100f).coerceIn(0.01f, 1f) }, modifier = Modifier.fillMaxWidth())
+            Text("${busyLabel.orEmpty()} $visibleProgress%", color = TextMuted, fontSize = 13.sp)
+            if (spec.id == "small" && visibleProgress < 3) {
+                Text("Small ist ca. 466 MiB groß; je nach CDN kann die Anzeige am Anfang langsam anlaufen. v0.3.8 nutzt eine erwartete Dateigröße, damit der Fortschritt nicht dauerhaft bei 0% bleibt.", color = TextMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            }
         }
         ActionStack {
             if (installed) {

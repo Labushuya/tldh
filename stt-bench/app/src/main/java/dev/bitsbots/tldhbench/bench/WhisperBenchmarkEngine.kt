@@ -6,6 +6,8 @@ import dev.bitsbots.tldhbench.audio.PreparedPcmAudio
 import dev.ffmpegkit.whisper.Whisper
 import dev.ffmpegkit.whisper.WhisperConfig
 import dev.ffmpegkit.whisper.WhisperModel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import kotlin.system.measureTimeMillis
 
@@ -21,13 +23,10 @@ internal data class WhisperEngineOutput(
 /**
  * Executable whisper.cpp runner with explicit German transcription lock.
  *
- * v0.3.4-v0.3.6 used a minimal wrapper whose public API exposed only transcribe(audioFile)
- * and could not force the recognition language. On German WhatsApp audio this made results
- * look like Whisper quality was terrible, while native logs showed non-German decoding.
- *
- * v0.3.7 switches to an Android whisper.cpp wrapper that exposes WhisperConfig(language = "de").
- * The app still uses the same app-side decode/preprocessing path as Vosk:
- * Android media input -> 16 kHz mono PCM -> WAV container -> whisper.cpp.
+ * v0.3.8 adds a defensive runner guard because the Android whisper.cpp wrapper can leave
+ * native state unstable after failed/heavy runs. We avoid concurrent native Whisper calls,
+ * use a fresh WAV path per run, always release the native model, remove temp files, and
+ * surface actionable failure hints instead of leaving the UI in a permanently busy state.
  */
 internal class WhisperBenchmarkEngine(private val context: Context) {
     suspend fun transcribe(
@@ -36,13 +35,13 @@ internal class WhisperBenchmarkEngine(private val context: Context) {
         decodeMs: Long,
         totalStartedAtMs: Long,
         workDir: File
-    ): WhisperEngineOutput {
+    ): WhisperEngineOutput = whisperMutex.withLock {
         if (!modelFile.isFile) {
             throw IllegalStateException("Whisper-Modell fehlt: ${modelFile.name}")
         }
         val wavFile = PcmWavWriter.writePcm16MonoWav(
             pcmFile = pcm.file,
-            wavFile = File(workDir, "tldh-whisper-input-16k-mono.wav"),
+            wavFile = File(workDir, "tldh-whisper-input-${System.currentTimeMillis()}.wav"),
             sampleRate = pcm.sampleRate
         )
 
@@ -50,43 +49,59 @@ internal class WhisperBenchmarkEngine(private val context: Context) {
         var transcript = ""
         var segments = emptyList<TranscriptSegment>()
         var modelLoadMs = 0L
-        val sttMs = try {
-            modelLoadMs = measureTimeMillis {
-                model = Whisper.loadModel(context, modelFile.absolutePath)
-            }
-            measureTimeMillis {
-                val result = Whisper.transcribe(
-                    model ?: error("Whisper-Modell wurde nicht geladen."),
-                    wavFile.absolutePath,
-                    WhisperConfig(language = "de")
-                )
-                transcript = result.text.trim()
-                segments = result.segments.mapNotNull { segment ->
-                    val text = segment.text.trim()
-                    if (text.isBlank()) {
-                        null
-                    } else {
-                        TranscriptSegment(
-                            startSec = segment.startMs / 1000.0,
-                            endSec = segment.endMs / 1000.0,
-                            text = text,
-                            words = emptyList()
-                        )
+        val sttMs: Long
+        try {
+            sttMs = try {
+                modelLoadMs = measureTimeMillis {
+                    model = Whisper.loadModel(context, modelFile.absolutePath)
+                }
+                measureTimeMillis {
+                    val result = Whisper.transcribe(
+                        model ?: error("Whisper-Modell wurde nicht geladen."),
+                        wavFile.absolutePath,
+                        WhisperConfig(language = "de")
+                    )
+                    transcript = result.text.trim()
+                    segments = result.segments.mapNotNull { segment ->
+                        val text = segment.text.trim()
+                        if (text.isBlank()) {
+                            null
+                        } else {
+                            TranscriptSegment(
+                                startSec = segment.startMs / 1000.0,
+                                endSec = segment.endMs / 1000.0,
+                                text = text,
+                                words = emptyList()
+                            )
+                        }
                     }
                 }
+            } catch (oom: OutOfMemoryError) {
+                throw IllegalStateException(
+                    "whisper.cpp hat nicht genug Speicher für ${modelFile.name}. App neu starten und zuerst tiny/base testen; small nur einzeln ohne Batch.",
+                    oom
+                )
+            } catch (t: Throwable) {
+                throw IllegalStateException(
+                    "whisper.cpp Lauf fehlgeschlagen (${t.message ?: t::class.java.simpleName}). Falls Folge-Läufe hängen: App über den Task-Switcher schließen und neu öffnen; v0.3.8 bereinigt Temp-Dateien und Native-Modelle pro Lauf.",
+                    t
+                )
             }
         } finally {
             model?.let { runCatching { Whisper.releaseModel(it) } }
+            runCatching { wavFile.delete() }
+            System.gc()
+            System.runFinalization()
         }
 
         val warnings = buildList {
-            add("whisper.cpp Deutsch-Lock aktiv: dieser Lauf nutzt WhisperConfig(language = \"de\") und darf wieder gegen Vosk verglichen werden.")
-            add("Der alte Whisper-Wrapper aus v0.3.4-v0.3.6 ist entfernt, weil er keine Sprachvorgabe exponiert hat und die nativen Logs auf nicht-deutsche Transkription hindeuteten.")
+            add("whisper.cpp Deutsch-Lock aktiv: dieser Lauf nutzt WhisperConfig(language = \"de\") und darf gegen Vosk verglichen werden.")
+            add("whisper.cpp Runner-Guard aktiv: einzelne native Whisper-Läufe werden seriell ausgeführt, Temp-WAVs nach jedem Lauf entfernt und Modelle explizit freigegeben.")
             add("Whisper liefert hier Segment-Zeitstempel, aber keine Wort-Confidence. WER/CER/S/I/D funktionieren mit Referenztext trotzdem.")
             if (decodeMs > 10_000L) add("Decode dauerte auffällig lange (${formatSecondsLocal(decodeMs)}). Audioformat oder Gerätelast prüfen.")
         }
 
-        return WhisperEngineOutput(
+        WhisperEngineOutput(
             transcript = transcript,
             segments = segments,
             modelLoadMs = modelLoadMs,
@@ -94,6 +109,10 @@ internal class WhisperBenchmarkEngine(private val context: Context) {
             totalMs = System.currentTimeMillis() - totalStartedAtMs,
             warnings = warnings
         )
+    }
+
+    companion object {
+        private val whisperMutex = Mutex()
     }
 }
 

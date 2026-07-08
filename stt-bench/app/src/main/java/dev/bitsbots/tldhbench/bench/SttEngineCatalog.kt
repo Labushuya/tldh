@@ -38,7 +38,7 @@ object SttEngineCatalog {
             localMode = "On-device · offline · ausführbarer whisper.cpp Runner mit Deutsch-Lock",
             expectedStrength = "Voraussichtlich deutlich robuster bei freier deutscher Sprache, Hintergrundgeräuschen und spontaner WhatsApp-Sprache.",
             expectedRisk = "Wahrscheinlich langsamer und größer als Vosk; tiny/base/small müssen real gegen dieselben deutschen Referenzen gemessen werden.",
-            nextStep = "v0.3.7: Whisper mit explizitem language=de gegen dieselbe Audio-/Referenz-/WER-Pipeline testen."
+            nextStep = "v0.3.8: Whisper mit Deutsch-Lock, Runner-Guard und stabilisiertem Modell-Download gegen dieselbe Audio-/Referenz-/WER-Pipeline testen."
         ),
         SttEngineSpec(
             id = "sherpa-onnx",

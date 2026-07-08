@@ -1,3 +1,20 @@
+# tl;dh STT Bench v0.3.8 — Whisper Watchdog + Download Progress
+
+Dieses Release stabilisiert den ersten ausführbaren `whisper.cpp`-Pfad nach dem German-Lock. Fokus: hängende native Whisper-Läufe besser abfangen und den `Whisper small` Download-Fortschritt sichtbar machen.
+
+## Neu
+
+- Whisper-Runs werden seriell ausgeführt, damit keine zwei nativen whisper.cpp Läufe gleichzeitig starten.
+- Pro Lauf wird eine frische temporäre WAV-Datei erzeugt und danach gelöscht.
+- Native Whisper-Modelle werden im `finally` explizit freigegeben.
+- Modellabhängige Watchdog-Timeouts für tiny/base/small.
+- `Whisper small` Download nutzt erwartete Dateigröße als Fallback, damit die Anzeige nicht dauerhaft bei 0 % hängt.
+- Unvollständige Whisper-Modell-Dateien werden anhand plausibler Mindestgröße abgelehnt.
+
+> Hinweis: Wenn die native Library nach einem schweren Whisper-Lauf trotzdem hängt, ist der pragmatische Recovery-Pfad weiterhin App komplett schließen und neu öffnen. Das ist kein Produktfeature, sondern eine Bench-App-Absicherung für experimentelle Native-Engines.
+
+---
+
 # v0.3.7 — Whisper German Lock
 
 - Whisper-Engine von `mx.valdora:whisper-android` auf `dev.ffmpegkit-maintained:whisper-android:1.0.0` umgestellt.
