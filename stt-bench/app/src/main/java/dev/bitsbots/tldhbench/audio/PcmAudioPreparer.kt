@@ -30,7 +30,9 @@ data class AudioPreprocessingInfo(
     val processedPcmDurationMs: Long? = null,
     val removedMs: Long = 0L,
     val removedPercent: Double = 0.0,
-    val note: String = "Basic silence trim / long-pause compression"
+    val profileId: String = AudioPreparationProfiles.defaultProfile.id,
+    val profileName: String = AudioPreparationProfiles.defaultProfile.displayName,
+    val note: String = AudioPreparationProfiles.defaultProfile.description
 )
 
 data class PreparedPcmAudio(
@@ -46,9 +48,13 @@ internal class PcmAudioPreparer(
     private val context: Context,
     private val workDir: File
 ) {
-    suspend fun prepare(uri: Uri, durationMs: Long?): PreparedPcmAudio = withContext(Dispatchers.IO) {
+    suspend fun prepare(
+        uri: Uri,
+        durationMs: Long?,
+        profile: AudioPreparationProfile = AudioPreparationProfiles.defaultProfile
+    ): PreparedPcmAudio = withContext(Dispatchers.IO) {
         workDir.mkdirs()
-        val output = File(workDir, "tldh-transcription-16k-mono.pcm")
+        val output = File(workDir, "tldh-transcription-${profile.id}-16k-mono.pcm")
         output.delete()
 
         val extractor = MediaExtractor()
@@ -69,13 +75,13 @@ internal class PcmAudioPreparer(
             val decodedMono = decodeMonoPcm16(extractor, decoder, durationMs)
             val sampleRate = currentSampleRate ?: inputFormat.optionalInt(MediaFormat.KEY_SAMPLE_RATE, TARGET_SAMPLE_RATE)
             val resampled = resampleTo16kMono(decodedMono, sampleRate)
-            val reduced = NonSpeechReducer.reduce(resampled)
-            writePcm16(reduced.samples, output)
+            val processed = applyPreparationProfile(resampled, profile)
+            writePcm16(processed.samples, output)
 
             PreparedPcmAudio(
                 file = output,
                 durationMs = durationMs,
-                preprocessing = reduced.info
+                preprocessing = processed.info
             )
         } finally {
             runCatching { decoder?.stop() }
@@ -187,6 +193,50 @@ internal class PcmAudioPreparer(
         }
     }
 
+
+    private fun applyPreparationProfile(samples: ShortArray, profile: AudioPreparationProfile): ReducedPcm {
+        val originalMs = durationMs(samples.size, TARGET_SAMPLE_RATE)
+        if (samples.isEmpty()) {
+            return ReducedPcm(
+                samples,
+                AudioPreprocessingInfo(
+                    enabled = false,
+                    originalPcmDurationMs = originalMs,
+                    processedPcmDurationMs = originalMs,
+                    removedMs = 0L,
+                    profileId = profile.id,
+                    profileName = profile.displayName,
+                    note = profile.description
+                )
+            )
+        }
+
+        var working = samples
+        if (profile.useVoiceBandFilter) working = VoiceBandFilter.apply(working)
+        if (profile.normalizeRms) working = RmsNormalizer.normalize(working)
+
+        return if (profile.useSilenceReduction) {
+            NonSpeechReducer.reduce(working, profile = profile)
+        } else {
+            ReducedPcm(
+                working,
+                AudioPreprocessingInfo(
+                    enabled = profile.normalizeRms || profile.useVoiceBandFilter,
+                    originalPcmDurationMs = originalMs,
+                    processedPcmDurationMs = durationMs(working.size, TARGET_SAMPLE_RATE),
+                    removedMs = 0L,
+                    removedPercent = 0.0,
+                    profileId = profile.id,
+                    profileName = profile.displayName,
+                    note = profile.description
+                )
+            )
+        }
+    }
+
+    private fun durationMs(sampleCount: Int, sampleRate: Int): Long =
+        ((sampleCount.toDouble() / sampleRate.toDouble()) * 1000.0).toLong().coerceAtLeast(0L)
+
     private fun MediaFormat.optionalInt(key: String, fallback: Int): Int =
         if (containsKey(key)) getInteger(key) else fallback
 }
@@ -195,6 +245,50 @@ private data class ReducedPcm(
     val samples: ShortArray,
     val info: AudioPreprocessingInfo
 )
+
+
+private object RmsNormalizer {
+    private const val TARGET_RMS = 5_200.0
+    private const val MAX_GAIN = 5.0
+
+    fun normalize(samples: ShortArray): ShortArray {
+        if (samples.isEmpty()) return samples
+        var sum = 0.0
+        samples.forEach { value ->
+            val v = value.toDouble()
+            sum += v * v
+        }
+        val rms = sqrt(sum / samples.size.toDouble()).coerceAtLeast(1.0)
+        val gain = (TARGET_RMS / rms).coerceIn(0.35, MAX_GAIN)
+        if (gain in 0.96..1.04) return samples
+        return ShortArray(samples.size) { index ->
+            (samples[index] * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+    }
+}
+
+private object VoiceBandFilter {
+    /**
+     * Lightweight speech-band shaping without external DSP dependencies:
+     * - removes very low frequency rumble by subtracting a slow moving average,
+     * - slightly smooths single-sample codec noise. This is deliberately mild.
+     */
+    fun apply(samples: ShortArray): ShortArray {
+        if (samples.size < 5) return samples
+        val out = ShortArray(samples.size)
+        var slow = 0.0
+        var previous = samples.first().toDouble()
+        for (i in samples.indices) {
+            val current = samples[i].toDouble()
+            slow = slow * 0.995 + current * 0.005
+            val highPassed = current - slow
+            val smoothed = highPassed * 0.72 + previous * 0.28
+            previous = highPassed
+            out[i] = smoothed.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+        return out
+    }
+}
 
 /**
  * Conservative non-speech reduction:
@@ -205,11 +299,13 @@ private data class ReducedPcm(
  */
 private object NonSpeechReducer {
     private const val FRAME_MS = 20
-    private const val PADDING_MS = 180
-    private const val MIN_KEEP_RATIO = 0.55
     private const val MIN_REMOVED_MS_TO_REPORT = 250L
 
-    fun reduce(samples: ShortArray, sampleRate: Int = TARGET_SAMPLE_RATE): ReducedPcm {
+    fun reduce(
+        samples: ShortArray,
+        sampleRate: Int = TARGET_SAMPLE_RATE,
+        profile: AudioPreparationProfile = AudioPreparationProfiles.defaultProfile
+    ): ReducedPcm {
         val originalMs = durationMs(samples.size, sampleRate)
         if (samples.size < sampleRate || samples.isEmpty()) {
             return ReducedPcm(samples, AudioPreprocessingInfo(originalPcmDurationMs = originalMs, processedPcmDurationMs = originalMs))
@@ -233,9 +329,14 @@ private object NonSpeechReducer {
 
         val sorted = rms.copyOf().also { it.sort() }
         val noiseFloor = sorted[(sorted.size * 0.25).toInt().coerceIn(0, sorted.lastIndex)]
-        val speechThreshold = max(280.0, min(1_600.0, noiseFloor * 3.8))
+        val thresholdMultiplier = if (profile.aggressiveSilenceReduction) 5.2 else 3.8
+        val thresholdMin = if (profile.aggressiveSilenceReduction) 420.0 else 280.0
+        val thresholdMax = if (profile.aggressiveSilenceReduction) 2_400.0 else 1_600.0
+        val speechThreshold = max(thresholdMin, min(thresholdMax, noiseFloor * thresholdMultiplier))
         val keep = BooleanArray(frameCount) { rms[it] >= speechThreshold }
-        val paddingFrames = max(1, PADDING_MS / FRAME_MS)
+        val paddingMs = if (profile.aggressiveSilenceReduction) 120 else 180
+        val minKeepRatio = if (profile.aggressiveSilenceReduction) 0.42 else 0.55
+        val paddingFrames = max(1, paddingMs / FRAME_MS)
         val paddedKeep = BooleanArray(frameCount)
         keep.forEachIndexed { index, shouldKeep ->
             if (shouldKeep) {
@@ -246,8 +347,18 @@ private object NonSpeechReducer {
         }
 
         val keptFrames = paddedKeep.count { it }
-        if (keptFrames == 0 || keptFrames.toDouble() / frameCount.toDouble() < MIN_KEEP_RATIO) {
-            return ReducedPcm(samples, AudioPreprocessingInfo(originalPcmDurationMs = originalMs, processedPcmDurationMs = originalMs, removedMs = 0L))
+        if (keptFrames == 0 || keptFrames.toDouble() / frameCount.toDouble() < minKeepRatio) {
+            return ReducedPcm(
+                samples,
+                AudioPreprocessingInfo(
+                    originalPcmDurationMs = originalMs,
+                    processedPcmDurationMs = originalMs,
+                    removedMs = 0L,
+                    profileId = profile.id,
+                    profileName = profile.displayName,
+                    note = profile.description
+                )
+            )
         }
 
         val out = ShortArrayBuilder(initialCapacity = keptFrames * frameSize)
@@ -269,10 +380,20 @@ private object NonSpeechReducer {
                     originalPcmDurationMs = originalMs,
                     processedPcmDurationMs = processedMs,
                     removedMs = removedMs,
-                    removedPercent = removedPercent
+                    removedPercent = removedPercent,
+                    profileId = profile.id,
+                    profileName = profile.displayName,
+                    note = profile.description
                 )
             } else {
-                AudioPreprocessingInfo(originalPcmDurationMs = originalMs, processedPcmDurationMs = originalMs, removedMs = 0L)
+                AudioPreprocessingInfo(
+                    originalPcmDurationMs = originalMs,
+                    processedPcmDurationMs = originalMs,
+                    removedMs = 0L,
+                    profileId = profile.id,
+                    profileName = profile.displayName,
+                    note = profile.description
+                )
             }
         )
     }

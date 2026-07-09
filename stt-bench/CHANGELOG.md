@@ -1,10 +1,16 @@
-# v0.3.9 — Benchmark Control + Audio Prep
+# tl;dh STT Bench Changelog
 
-- Version: `0.3.9 / 309`, Release: `stt-bench-v0.3.9`, APK: `tldh-stt-bench-0.3.9.apk`.
-- Einzelbenchmark-Status bereinigt: keine doppelte Progress-/Spinner-Mischung mehr.
-- Benchmark-Fortschritt zeigt bewusst keinen irreführenden `0%`-Wert mehr, wenn die native Engine keinen echten Progress-Callback liefert.
-- Vosk und whisper.cpp zeigen während des STT-Laufs einen indeterminate Laufstatus mit Elapsed-Time.
-- Einzel- und Batch-Benchmarks besitzen eine Abbrechen-Aktion.
-- Hinweis: Native STT-Runner können nicht immer hart unterbrochen werden; UI-State wird aber bereinigt und Whisper-Runtime-Reset bleibt verfügbar.
-- Neuer Audio-Prep-Hinweis im Benchmark-Tab: nächster Messpfad ist eine vergleichbare Preprocessing-Matrix für Real-Audios.
-- Haupt-App `app/` bleibt unverändert.
+## 0.4.0
+
+- Added reproducible Audio-Prep profiles for real-world audio benchmarking.
+- Added Audio-Prep-Matrix runner for same audio + same reference across multiple prep profiles.
+- Added Audio-Prep profile labels to single and matrix Markdown reports.
+- Single benchmark now uses the selected Audio-Prep profile.
+- Corpus batch keeps using the selected Audio-Prep profile.
+- Added deterministic local PCM preprocessing variants: Original, Basic Gate, Normalized, Voice-Band + Basic, Aggressive Gate.
+
+## 0.3.9
+
+- Benchmark progress UI changed to indeterminate status where engines do not expose true progress.
+- Added benchmark/batch cancel UI.
+- Added Audio-Prep placeholder card.

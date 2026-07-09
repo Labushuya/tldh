@@ -87,7 +87,7 @@ internal class WhisperBenchmarkEngine(private val context: Context) {
             add("whisper.cpp Deutsch-Lock aktiv: dieser Lauf nutzt WhisperConfig(language = \"de\") und darf wieder gegen Vosk verglichen werden.")
             add("Der alte Whisper-Wrapper aus v0.3.4-v0.3.6 ist entfernt, weil er keine Sprachvorgabe exponiert hat und die nativen Logs auf nicht-deutsche Transkription hindeuteten.")
             add("Whisper liefert hier Segment-Zeitstempel, aber keine Wort-Confidence. WER/CER/S/I/D funktionieren mit Referenztext trotzdem.")
-            add("Whisper v0.3.9 Reliability: native Läufe bleiben serialisiert; die UI zeigt Benchmark-Läufe bewusst indeterminate mit Abbrechen-Aktion statt irreführender 0%-Progressanzeige.")
+            add("Whisper Reliability: native Läufe bleiben serialisiert; die UI zeigt Benchmark-Läufe bewusst indeterminate mit Abbrechen-Aktion statt irreführender 0%-Progressanzeige.")
             if (decodeMs > 10_000L) add("Decode dauerte auffällig lange (${formatSecondsLocal(decodeMs)}). Audioformat oder Gerätelast prüfen.")
             if (transcript.isBlank()) add("Whisper hat ein leeres Transkript geliefert. Modell/Audio erneut testen und bei Wiederholung tiny/base gegenprüfen.")
         }

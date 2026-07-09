@@ -38,7 +38,7 @@ object SttEngineCatalog {
             localMode = "On-device · offline · ausführbarer whisper.cpp Runner mit Deutsch-Lock",
             expectedStrength = "Voraussichtlich deutlich robuster bei freier deutscher Sprache, Hintergrundgeräuschen und spontaner WhatsApp-Sprache.",
             expectedRisk = "Wahrscheinlich langsamer und größer als Vosk; tiny/base/small müssen real gegen dieselben deutschen Referenzen gemessen werden.",
-            nextStep = "v0.3.9: Benchmark-UI stabilisieren, Abbrechen ermöglichen und Audio-Prep-Testmatrix für echte WhatsApp-Audios vorbereiten."
+            nextStep = "v0.4.0: dieselbe Real-Audio über Audio-Prep-Matrix messen; danach quantisierte Whisper-Modelle prüfen."
         ),
         SttEngineSpec(
             id = "sherpa-onnx",

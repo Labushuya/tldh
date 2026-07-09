@@ -2,6 +2,8 @@ package dev.bitsbots.tldhbench.bench
 
 import android.content.Context
 import dev.bitsbots.tldhbench.audio.AudioIngestor
+import dev.bitsbots.tldhbench.audio.AudioPreparationProfile
+import dev.bitsbots.tldhbench.audio.AudioPreparationProfiles
 import dev.bitsbots.tldhbench.audio.PcmAudioPreparer
 import dev.bitsbots.tldhbench.audio.PreparedPcmAudio
 import dev.bitsbots.tldhbench.models.VoskModelManager
@@ -21,7 +23,8 @@ class BenchmarkRunner(private val context: Context) {
     suspend fun runVosk(
         sharedAudio: SharedAudio,
         modelSpec: VoskModelSpec,
-        referenceText: String? = null
+        referenceText: String? = null,
+        audioPrepProfile: AudioPreparationProfile = AudioPreparationProfiles.defaultProfile
     ): BenchmarkResult = withContext(Dispatchers.Default) {
         if (!voskModelManager.isInstalled(modelSpec)) {
             throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Modell herunterladen/installieren.")
@@ -42,7 +45,7 @@ class BenchmarkRunner(private val context: Context) {
 
         lateinit var prepared: PreparedPcmAudio
         val decodeMs = measureTimeMillis {
-            prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
+            prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs, audioPrepProfile)
         }
 
         val engineOutput = VoskBenchmarkEngine().transcribe(
@@ -61,6 +64,7 @@ class BenchmarkRunner(private val context: Context) {
         )
 
         val modelWarnings = listOfNotNull(
+            audioPrepWarning(audioPrepProfile),
             if (modelSpec.deviceSignal == Signal.RED) {
                 "${modelSpec.displayName} ist laut Ampel eher kein Handy-Modell. Benchmark kann RAM/Download/Zeit stark belasten."
             } else {
@@ -94,7 +98,8 @@ class BenchmarkRunner(private val context: Context) {
     suspend fun runWhisper(
         sharedAudio: SharedAudio,
         modelSpec: WhisperModelSpec,
-        referenceText: String? = null
+        referenceText: String? = null,
+        audioPrepProfile: AudioPreparationProfile = AudioPreparationProfiles.defaultProfile
     ): BenchmarkResult = withContext(Dispatchers.Default) {
         if (!whisperModelManager.isInstalled(modelSpec)) {
             throw IllegalStateException("${modelSpec.displayName} ist nicht installiert. Erst Whisper-Modell herunterladen.")
@@ -109,7 +114,7 @@ class BenchmarkRunner(private val context: Context) {
 
         lateinit var prepared: PreparedPcmAudio
         val decodeMs = measureTimeMillis {
-            prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs)
+            prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs, audioPrepProfile)
         }
 
         val effectiveAudioDurationMs = metadata.durationMs ?: prepared.durationMs ?: 0L
@@ -144,6 +149,7 @@ class BenchmarkRunner(private val context: Context) {
         )
 
         val modelWarnings = listOfNotNull(
+            audioPrepWarning(audioPrepProfile),
             if (modelSpec.speedSignal == Signal.RED) {
                 "${modelSpec.displayName} ist ein Qualitätskandidat. Laufzeit, Akku und RTF kritisch prüfen."
             } else {
@@ -201,9 +207,12 @@ class BenchmarkRunner(private val context: Context) {
         }
     )
 
+    private fun audioPrepWarning(profile: AudioPreparationProfile): String =
+        "Audio-Prep-Profil: ${profile.displayName} — ${profile.description}"
+
     private fun preprocessingWarnings(prepared: PreparedPcmAudio, engineLabel: String): List<String> = listOfNotNull(
-        prepared.preprocessing.takeIf { it.enabled && it.removedMs > 0L }?.let {
-            "Nicht-Sprache-Reduktion aktiv: ca. ${formatSeconds(it.removedMs)} (${formatPercent(it.removedPercent)}) leise/pausierte PCM-Anteile vor $engineLabel entfernt. Timing-Verdict bleibt auf Originaldauer bezogen."
+        prepared.preprocessing.takeIf { it.removedMs > 0L }?.let {
+            "Nicht-Sprache-Reduktion aktiv (${it.profileName}): ca. ${formatSeconds(it.removedMs)} (${formatPercent(it.removedPercent)}) leise/pausierte PCM-Anteile vor $engineLabel entfernt. Timing-Verdict bleibt auf Originaldauer bezogen."
         }
     )
 

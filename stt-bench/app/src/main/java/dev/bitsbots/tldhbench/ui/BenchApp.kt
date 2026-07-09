@@ -73,6 +73,8 @@ import dev.bitsbots.tldhbench.bench.VoskModelSpec
 import dev.bitsbots.tldhbench.bench.WordDiffType
 import dev.bitsbots.tldhbench.bench.WhisperModelCatalog
 import dev.bitsbots.tldhbench.bench.WhisperModelSpec
+import dev.bitsbots.tldhbench.audio.AudioPreparationProfile
+import dev.bitsbots.tldhbench.audio.AudioPreparationProfiles
 import dev.bitsbots.tldhbench.audio.LongFormAudioComposer
 import dev.bitsbots.tldhbench.audio.LongFormProfile
 import dev.bitsbots.tldhbench.audio.LongFormProfiles
@@ -192,6 +194,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var referenceText by remember { mutableStateOf("") }
     var batchReport by remember { mutableStateOf<BatchRunReport?>(null) }
     var batchRepeatCount by remember { mutableIntStateOf(1) }
+    var selectedAudioPrepProfile by remember {
+        mutableStateOf(AudioPreparationProfiles.byId(uiStatePrefs.getString("audio_prep_profile_id", AudioPreparationProfiles.defaultProfile.id)))
+    }
     var lastHandledExternalShareKey by remember { mutableStateOf<String?>(null) }
     var currentBenchmarkJob by remember { mutableStateOf<Job?>(null) }
 
@@ -275,9 +280,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             }
             runCatching {
                 if (activeEngineId == "whisper-cpp") {
-                    BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText)
+                    BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText, selectedAudioPrepProfile)
                 } else {
-                    BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
+                    BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText, selectedAudioPrepProfile)
                 }
             }.onSuccess {
                 heartbeat?.cancel()
@@ -358,9 +363,9 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     busyLabel = "Batch ${index + 1}/${batchSamples.size}: ${sample.id}"
                     progress = (((index + 1) * 100) / batchSamples.size).coerceIn(0, 100)
                     if (activeEngineId == "whisper-cpp") {
-                        BenchmarkRunner(context).runWhisper(corpusManager.sharedAudio(sample), selectedWhisperModel, sample.referenceText)
+                        BenchmarkRunner(context).runWhisper(corpusManager.sharedAudio(sample), selectedWhisperModel, sample.referenceText, selectedAudioPrepProfile)
                     } else {
-                        BenchmarkRunner(context).runVosk(corpusManager.sharedAudio(sample), selectedModel, sample.referenceText)
+                        BenchmarkRunner(context).runVosk(corpusManager.sharedAudio(sample), selectedModel, sample.referenceText, selectedAudioPrepProfile)
                     }
                 }.onSuccess {
                     results += it
@@ -376,6 +381,92 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 }
             }
             batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
+            busyLabel = null
+            historyExpanded = true
+            selectedSection = BenchSection.Results
+            currentBenchmarkJob = null
+        }
+    }
+
+    fun runAudioPrepMatrix() {
+        val audio = sharedAudioState.value
+        if (audio == null) {
+            error = "Audio-Prep-Matrix nicht möglich: keine Audioquelle aktiv."
+            selectedSection = BenchSection.Results
+            return
+        }
+        if (referenceText.isBlank()) {
+            error = "Audio-Prep-Matrix nicht möglich: Referenztext fehlt. Ohne Referenz kann WER/CER nicht verglichen werden."
+            selectedSection = BenchSection.Results
+            return
+        }
+        val activeModelInstalled = if (activeEngineId == "whisper-cpp") {
+            installedWhisperIds.contains(selectedWhisperModel.id)
+        } else {
+            installedIds.contains(selectedModel.id)
+        }
+        val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+        if (!activeModelInstalled) {
+            error = "Audio-Prep-Matrix nicht möglich: Installiere zuerst das aktive Modell $activeModelName."
+            selectedSection = BenchSection.Results
+            return
+        }
+        if (activeEngineId == "vosk" && selectedModel.deviceSignal == Signal.RED) {
+            error = "Audio-Prep-Matrix nicht möglich: ${selectedModel.displayName} ist auf Android per Crash-Guard blockiert."
+            selectedSection = BenchSection.Results
+            return
+        }
+        if (currentBenchmarkJob?.isActive == true) return
+        currentBenchmarkJob = scope.launch {
+            error = null
+            result = null
+            batchReport = null
+            progress = 0
+            val profiles = AudioPreparationProfiles.matrixProfiles
+            busyLabel = "Audio-Prep-Matrix 0/${profiles.size} vorbereitet…"
+            selectedSection = BenchSection.Run
+            val previousProfile = selectedAudioPrepProfile
+            val results = mutableListOf<BenchmarkResult>()
+            for ((index, profile) in profiles.withIndex()) {
+                runCatching {
+                    selectedAudioPrepProfile = profile
+                    busyLabel = "Audio-Prep-Matrix ${index + 1}/${profiles.size}: ${profile.shortLabel}"
+                    progress = (((index + 1) * 100) / profiles.size).coerceIn(0, 100)
+                    if (activeEngineId == "whisper-cpp") {
+                        BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText, profile)
+                    } else {
+                        BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText, profile)
+                    }
+                }.onSuccess {
+                    results += it
+                    historyStore.add(it)
+                    history = historyStore.load()
+                }.onFailure { throwable ->
+                    selectedAudioPrepProfile = previousProfile
+                    busyLabel = null
+                    error = "Audio-Prep-Matrix fehlgeschlagen ($activeModelName): ${throwable.message}"
+                    if (results.isNotEmpty()) {
+                        batchReport = BatchRunReport.from(
+                            modelName = activeModelName,
+                            modelId = if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id,
+                            results = results,
+                            repeatCount = 1,
+                            reportLabel = "Audio-Prep-Matrix (${results.size}/${profiles.size} Profile)"
+                        )
+                    }
+                    selectedSection = BenchSection.Results
+                    currentBenchmarkJob = null
+                    return@launch
+                }
+            }
+            selectedAudioPrepProfile = previousProfile
+            batchReport = BatchRunReport.from(
+                modelName = activeModelName,
+                modelId = if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id,
+                results = results,
+                repeatCount = 1,
+                reportLabel = "Audio-Prep-Matrix (${profiles.size} Profile)"
+            )
             busyLabel = null
             historyExpanded = true
             selectedSection = BenchSection.Results
@@ -402,11 +493,12 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         }
     }
 
-    LaunchedEffect(activeEngineId, selectedModel.id, selectedWhisperModel.id) {
+    LaunchedEffect(activeEngineId, selectedModel.id, selectedWhisperModel.id, selectedAudioPrepProfile.id) {
         uiStatePrefs.edit()
             .putString("active_engine_id", activeEngineId)
             .putString("selected_vosk_model_id", selectedModel.id)
             .putString("selected_whisper_model_id", selectedWhisperModel.id)
+            .putString("audio_prep_profile_id", selectedAudioPrepProfile.id)
             .apply()
     }
 
@@ -440,6 +532,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     selectedLongFormLabel = selectedLongFormLabel,
                     sharedAudio = sharedAudioState.value,
                     referenceText = referenceText,
+                    selectedAudioPrepProfile = selectedAudioPrepProfile,
                     installedSampleCount = installedSampleIds.size,
                     totalSampleCount = BuiltInReferenceCorpus.samples.size,
                     busyLabel = busyLabel,
@@ -756,6 +849,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         busyLabel = busyLabel,
                         batchRepeatCount = batchRepeatCount,
                         batchReport = batchReport,
+                        selectedAudioPrepProfile = selectedAudioPrepProfile,
                         onReferenceTextChange = { referenceText = it },
                         onPasteReference = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -768,6 +862,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         },
                         onClearReference = { referenceText = "" },
                         onComposeLongForm = { profile -> composeLongForm(profile) },
+                        onAudioPrepProfileChange = { selectedAudioPrepProfile = it },
+                        onRunAudioPrepMatrix = { runAudioPrepMatrix() },
                         onRunSingle = { runSingleBenchmark() },
                         onCancel = { cancelBenchmark() },
                         onReset = { resetBenchmark(clearBatch = false) },
@@ -866,6 +962,7 @@ private fun ActiveSetupCard(
     selectedLongFormLabel: String?,
     sharedAudio: SharedAudio?,
     referenceText: String,
+    selectedAudioPrepProfile: AudioPreparationProfile,
     installedSampleCount: Int,
     totalSampleCount: Int,
     busyLabel: String?,
@@ -881,6 +978,7 @@ private fun ActiveSetupCard(
                     val modelReady = if (activeEngineId == "whisper-cpp") whisperModelInstalled else modelInstalled
                     Text("Engine: $engineLabel", color = if (activeEngineId == "whisper-cpp") Accent2 else Good, lineHeight = 18.sp)
                     Text("Modell: $modelLabel", color = if (modelReady) Good else Warn, lineHeight = 18.sp)
+                    Text("Audio-Prep: ${selectedAudioPrepProfile.displayName}", color = Accent2, lineHeight = 18.sp)
                     Text("Quelle: ${activeAudioSourceLabel(sharedAudio)}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
                     Text("Audio: ${activeAudioTitle(sharedAudio, selectedSample, selectedLongFormLabel)}", color = if (sharedAudio != null) TextMain else TextMuted, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -930,8 +1028,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.3.9 Fokus") {
-        Text("Diese Version räumt die Benchmark-UX auf: ein einziger sichtbarer Laufstatus, keine irreführenden 0%-Benchmarkanzeigen, Abbrechen-Button für laufende Einzel-/Batchläufe und ein eigener Audio-Prep-Experimentbereich.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.4.0 Fokus") {
+        Text("Diese Version ergänzt die Audio-Prep-Matrix: dieselbe Real-Audio kann jetzt mit Original, Normalisierung, Basic Gate, Voice-Band und aggressiverem Gate gegen denselben Referenztext verglichen werden.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -1022,7 +1120,7 @@ private fun WhisperRuntimeRecoveryCard(
             lineHeight = 20.sp
         )
         Text(
-            "Bei small gilt: Ein langer Lauf kann wirklich minutenlang dauern. v0.3.9 zeigt deshalb bewusst nur Laufstatus/Elapsed-Time statt irreführender Prozentwerte.",
+            "Bei small gilt: Ein langer Lauf kann wirklich minutenlang dauern. v0.4.0 zeigt deshalb bewusst nur Laufstatus/Elapsed-Time statt irreführender Prozentwerte.",
             color = Warn,
             fontSize = 13.sp,
             lineHeight = 18.sp
@@ -1369,10 +1467,13 @@ private fun RunSection(
     busyLabel: String?,
     batchRepeatCount: Int,
     batchReport: BatchRunReport?,
+    selectedAudioPrepProfile: AudioPreparationProfile,
     onReferenceTextChange: (String) -> Unit,
     onPasteReference: () -> Unit,
     onClearReference: () -> Unit,
     onComposeLongForm: (LongFormProfile) -> Unit,
+    onAudioPrepProfileChange: (AudioPreparationProfile) -> Unit,
+    onRunAudioPrepMatrix: () -> Unit,
     onRunSingle: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
@@ -1393,6 +1494,7 @@ private fun RunSection(
         selectedSample = selectedSample,
         selectedLongFormLabel = selectedLongFormLabel,
         referenceText = referenceText,
+        selectedAudioPrepProfile = selectedAudioPrepProfile,
         busy = busy,
         progress = progress,
         busyLabel = busyLabel,
@@ -1401,7 +1503,18 @@ private fun RunSection(
         onReset = onReset
     )
     MetricHelpCard()
-    AudioPrepExperimentCard()
+    AudioPrepExperimentCard(
+        sharedAudio = sharedAudio,
+        referenceText = referenceText,
+        activeModelInstalled = activeModelInstalled,
+        busy = busy,
+        busyLabel = busyLabel,
+        progress = progress,
+        selectedProfile = selectedAudioPrepProfile,
+        onProfileChange = onAudioPrepProfileChange,
+        onRunMatrix = onRunAudioPrepMatrix,
+        onCancel = onCancel
+    )
     LongFormScenarioCard(
         installedCount = installedSampleCount,
         totalCount = totalSampleCount,
@@ -1447,6 +1560,7 @@ private fun BenchmarkActionCard(
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     referenceText: String,
+    selectedAudioPrepProfile: AudioPreparationProfile,
     busy: Boolean,
     progress: Int,
     busyLabel: String?,
@@ -1467,6 +1581,8 @@ private fun BenchmarkActionCard(
         val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
         Text("Aktive Engine: $activeEngineLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Aktives Modell: $activeModelLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text("Audio-Prep: ${selectedAudioPrepProfile.displayName}", color = Accent2, fontWeight = FontWeight.SemiBold)
+        Text(selectedAudioPrepProfile.description, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         if (!activeModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
         if (activeEngineId == "whisper-cpp") {
             Text(
@@ -1522,22 +1638,59 @@ private fun BenchmarkActionCard(
 
 
 @Composable
-private fun AudioPrepExperimentCard() {
-    CardBlock(title = "Audio-Optimierung / nächster Prüfpfad") {
+private fun AudioPrepExperimentCard(
+    sharedAudio: SharedAudio?,
+    referenceText: String,
+    activeModelInstalled: Boolean,
+    busy: Boolean,
+    busyLabel: String?,
+    progress: Int,
+    selectedProfile: AudioPreparationProfile,
+    onProfileChange: (AudioPreparationProfile) -> Unit,
+    onRunMatrix: () -> Unit,
+    onCancel: () -> Unit
+) {
+    CardBlock(title = "Audio-Prep-Matrix / Real-Audio-Optimierung") {
         Text(
-            "Die bisherigen Realtests zeigen: cleanes Goldstandard-Audio ist nicht das Problem; echte WhatsApp-Audios mit Bewegung, Atmung, Hall, Hintergrundgeräuschen und spontaner Sprache sind der schwierige Fall. Deshalb wird als nächster Benchmark nicht blind ein weiteres Modell ergänzt, sondern eine vergleichbare Audio-Prep-Testmatrix.",
+            "Vergleicht dieselbe Audio gegen dieselbe Referenz mit mehreren deterministischen Audio-Prep-Profilen. Ziel: herausfinden, ob Normalisierung, Sprachband-Filterung oder aggressiveres Gate WER/CER wirklich verbessern — statt nur gefühlt besser zu sein.",
             color = TextMuted,
             lineHeight = 20.sp
         )
+        Text("Aktives Profil für Einzelbenchmark: ${selectedProfile.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+        Text(selectedProfile.description, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        ActionStack {
+            AudioPreparationProfiles.all.forEach { profile ->
+                if (profile.id == selectedProfile.id) {
+                    PrimaryActionButton(profile.shortLabel, { onProfileChange(profile) }, enabled = !busy)
+                } else {
+                    SecondaryActionButton(profile.shortLabel, { onProfileChange(profile) }, enabled = !busy)
+                }
+            }
+        }
         Text(
-            "Geplante Prep-Varianten für vNext: Original, nur Normalisierung, Silence/VAD aggressiver, Loudness + High-Pass, segmentierte 30s-Chunks mit Kontext-Prompt. Danach dieselbe Audio gegen dieselbe Referenz messen.",
+            "Matrix-Profile: Original, Basic Gate, Normalisiert, Voice-Band + Basic, Aggressives Gate. Der Report zeigt danach pro Profil RTF/WER/CER/S/I/D.",
             color = Warn,
             fontSize = 13.sp,
             lineHeight = 18.sp
         )
+        val canRunMatrix = sharedAudio != null && referenceText.isNotBlank() && activeModelInstalled && !busy
+        ActionStack {
+            PrimaryActionButton("Audio-Prep-Matrix starten", onRunMatrix, enabled = canRunMatrix)
+            if (busy && busyLabel?.startsWith("Audio-Prep-Matrix") == true) {
+                SecondaryActionButton("Matrix abbrechen", onCancel, enabled = true)
+            }
+        }
+        if (referenceText.isBlank()) {
+            Text("Matrix benötigt Referenztext, sonst kann sie keine WER/CER-Verbesserung messen.", color = Warn, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+        if (busyLabel?.startsWith("Audio-Prep-Matrix") == true) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Text("$busyLabel · $progress%", color = TextMuted)
+            }
+        }
     }
 }
-
 @Composable
 private fun ActiveAudioBox(
     sharedAudio: SharedAudio?,
@@ -1996,7 +2149,7 @@ private fun BatchReportBlock(report: BatchRunReport) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Batch-Ergebnis", color = TextMain, fontWeight = FontWeight.Bold)
-        Text("${report.modelName} · ${report.sampleCount} Läufe · ${report.repeatCount}× Corpus · ${formatHistoryTime(report.createdAtMs)}", color = TextMuted)
+        Text("${report.modelName} · ${report.sampleCount} Läufe · ${report.reportLabel} · ${formatHistoryTime(report.createdAtMs)}", color = TextMuted)
         Text(
             "Ø RTF: ${report.avgRtf?.let { fmtNumber(it) } ?: "n/a"} · Ø WER: ${report.avgWerPercent?.let { fmtPct(it) } ?: "n/a"} · Ø CER: ${report.avgCerPercent?.let { fmtPct(it) } ?: "n/a"}",
             color = TextMain,
@@ -2009,7 +2162,7 @@ private fun BatchReportBlock(report: BatchRunReport) {
         report.results.forEach { item ->
             val comparison = item.referenceComparison
             Text(
-                "• ${item.metadata.displayName ?: item.metadata.uriString.substringAfterLast('/')} · Gesamt ${fmtMs(item.timing.totalMs)} · RTF ${item.timing.rtf?.let { fmtNumber(it) } ?: "n/a"} · Wortfehler ${comparison?.wordDistance?.toString() ?: "n/a"} · WER ${comparison?.werPercent?.let { fmtPct(it) } ?: "n/a"} · S/I/D ${comparison?.let { "${it.wordSubstitutions}/${it.wordInsertions}/${it.wordDeletions}" } ?: "n/a"}",
+                "• ${extractAudioPrepLabel(item)} · ${item.metadata.displayName ?: item.metadata.uriString.substringAfterLast('/')} · Gesamt ${fmtMs(item.timing.totalMs)} · RTF ${item.timing.rtf?.let { fmtNumber(it) } ?: "n/a"} · Wortfehler ${comparison?.wordDistance?.toString() ?: "n/a"} · WER ${comparison?.werPercent?.let { fmtPct(it) } ?: "n/a"} · S/I/D ${comparison?.let { "${it.wordSubstitutions}/${it.wordInsertions}/${it.wordDeletions}" } ?: "n/a"}",
                 color = TextMuted,
                 lineHeight = 19.sp
             )
@@ -2406,7 +2559,8 @@ private data class BatchRunReport(
     val modelId: String,
     val createdAtMs: Long,
     val results: List<BenchmarkResult>,
-    val repeatCount: Int = 1
+    val repeatCount: Int = 1,
+    val reportLabel: String = "${repeatCount}× Corpus"
 ) {
     val sampleCount: Int = results.size
     val avgRtf: Double? = results.mapNotNull { it.timing.rtf }.averageOrNull()
@@ -2421,12 +2575,19 @@ private data class BatchRunReport(
         ?: "n/a"
 
     companion object {
-        fun from(modelName: String, modelId: String, results: List<BenchmarkResult>, repeatCount: Int = 1): BatchRunReport = BatchRunReport(
+        fun from(
+            modelName: String,
+            modelId: String,
+            results: List<BenchmarkResult>,
+            repeatCount: Int = 1,
+            reportLabel: String = "${repeatCount}× Corpus"
+        ): BatchRunReport = BatchRunReport(
             modelName = modelName,
             modelId = modelId,
             createdAtMs = System.currentTimeMillis(),
             results = results.toList(),
-            repeatCount = repeatCount
+            repeatCount = repeatCount,
+            reportLabel = reportLabel
         )
     }
 }
@@ -2438,18 +2599,19 @@ private fun BatchRunReport.toMarkdown(): String {
     lines += "- Modell: $modelName (`$modelId`)"
     lines += "- Zeitpunkt: ${formatHistoryTime(createdAtMs)}"
     lines += "- Läufe: $sampleCount"
-    lines += "- Profil: ${repeatCount}× Corpus"
+    lines += "- Profil: $reportLabel"
     lines += "- Speed-Pass: $speedPassCount/$speedEvaluatedCount"
     lines += "- Ø RTF: ${avgRtf?.let { fmtNumber(it) } ?: "n/a"}"
     lines += "- Ø WER: ${avgWerPercent?.let { fmtPct(it) } ?: "n/a"}"
     lines += "- Ø CER: ${avgCerPercent?.let { fmtPct(it) } ?: "n/a"}"
     lines += "- Schwächste WER: $worstWerLabel"
     lines += ""
-    lines += "| Sample | Dauer | Gesamt | Decode | Modell | STT | RTF | Wortfehler | S/I/D | WER | CER | Verdict |"
-    lines += "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    lines += "| Prep | Sample | Dauer | Gesamt | Decode | Modell | STT | RTF | Wortfehler | S/I/D | WER | CER | Verdict |"
+    lines += "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
     results.forEach { result ->
         val comparison = result.referenceComparison
         lines += listOf(
+            extractAudioPrepLabel(result),
             result.metadata.displayName ?: result.metadata.uriString.substringAfterLast('/'),
             fmtMs(result.timing.audioDurationMs),
             fmtMs(result.timing.totalMs),
@@ -2470,6 +2632,7 @@ private fun BatchRunReport.toMarkdown(): String {
         lines += ""
         lines += "### ${index + 1}. ${result.metadata.displayName ?: result.metadata.uriString.substringAfterLast('/')}"
         lines += ""
+        lines += "- Audio-Prep: ${extractAudioPrepLabel(result)}"
         result.referenceComparison?.let { comparison ->
             lines += "- ${comparison.summary}"
             lines += "- Wortfehler: ${comparison.wordDistance} von ${comparison.referenceWordCount}; S/I/D ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}"
@@ -2490,6 +2653,7 @@ private fun BenchmarkResult.toMarkdown(): String {
     lines += "- Engine: $engine"
     lines += "- Modell: $model (`$modelId`)"
     lines += "- Sprache: $language"
+    lines += "- Audio-Prep: ${extractAudioPrepLabel(this)}"
     lines += "- Datei: ${metadata.displayName ?: "unbekannt"}"
     lines += "- MIME/Format: ${metadata.mimeType ?: "unbekannt"} / ${metadata.format}"
     lines += "- Dauer: ${fmtMs(timing.audioDurationMs)}"
@@ -2533,6 +2697,14 @@ private fun BenchmarkResult.toMarkdown(): String {
     }
     return lines.joinToString("\n")
 }
+
+private fun extractAudioPrepLabel(result: BenchmarkResult): String =
+    result.warnings.firstOrNull { it.startsWith("Audio-Prep-Profil:") }
+        ?.substringAfter("Audio-Prep-Profil:")
+        ?.substringBefore("—")
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: "n/a"
 
 private fun copyToClipboard(context: Context, label: String, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
