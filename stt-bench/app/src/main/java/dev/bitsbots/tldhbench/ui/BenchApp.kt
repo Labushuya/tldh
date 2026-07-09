@@ -90,6 +90,9 @@ import dev.bitsbots.tldhbench.updates.BenchmarkReleaseSelector
 import dev.bitsbots.tldhbench.updates.BenchmarkUpdate
 import dev.bitsbots.tldhbench.updates.GitHubReleaseClient
 import dev.bitsbots.tldhbench.updates.UpdateDownloadGuard
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -126,6 +129,17 @@ private val BenchColorScheme = darkColorScheme(
     outline = FieldBorder
 )
 
+
+private fun whisperWatchdogProgress(elapsedSec: Long): Int = when {
+    elapsedSec < 3L -> 8
+    elapsedSec < 8L -> 14
+    elapsedSec < 20L -> 24
+    elapsedSec < 45L -> 38
+    elapsedSec < 90L -> 52
+    elapsedSec < 180L -> 68
+    elapsedSec < 360L -> 82
+    else -> 92
+}
 
 @Composable
 fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
@@ -179,6 +193,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     var batchReport by remember { mutableStateOf<BatchRunReport?>(null) }
     var batchRepeatCount by remember { mutableIntStateOf(1) }
     var lastHandledExternalShareKey by remember { mutableStateOf<String?>(null) }
+    var currentBenchmarkJob by remember { mutableStateOf<Job?>(null) }
 
     fun resetBenchmark(clearBatch: Boolean = false) {
         result = null
@@ -229,13 +244,35 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         }
     }
 
+    fun cancelBenchmark() {
+        currentBenchmarkJob?.cancel(CancellationException("Nutzer hat den Benchmark abgebrochen."))
+        currentBenchmarkJob = null
+        busyLabel = null
+        progress = 0
+        error = "Benchmark abgebrochen. Hinweis: Native STT-Engines können einen laufenden nativen Aufruf nicht immer sofort hart stoppen; falls whisper.cpp danach blockiert wirkt, im Engines-Tab 'Whisper-Runtime zurücksetzen' nutzen."
+        selectedSection = BenchSection.Results
+    }
+
     fun runSingleBenchmark() {
         val audio = sharedAudioState.value ?: return
-        scope.launch {
+        if (currentBenchmarkJob?.isActive == true) return
+        currentBenchmarkJob = scope.launch {
             error = null
             result = null
-            busyLabel = "Benchmark läuft…"
+            progress = 0
+            val startedUiAt = System.currentTimeMillis()
+            val activeEngineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
+            busyLabel = "$activeEngineLabel Benchmark läuft · 0s"
             selectedSection = BenchSection.Run
+            val activeModelAtStart = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+            val heartbeat = scope.launch {
+                while (busyLabel != null && result == null && error == null) {
+                    val elapsedSec = ((System.currentTimeMillis() - startedUiAt) / 1000L).coerceAtLeast(0L)
+                    progress = if (activeEngineId == "whisper-cpp") whisperWatchdogProgress(elapsedSec) else 0
+                    busyLabel = "$activeEngineLabel Benchmark läuft · $activeModelAtStart · ${elapsedSec}s"
+                    delay(1_000L)
+                }
+            }
             runCatching {
                 if (activeEngineId == "whisper-cpp") {
                     BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText)
@@ -243,6 +280,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText)
                 }
             }.onSuccess {
+                heartbeat?.cancel()
+                progress = 100
                 result = it
                 historyStore.add(it)
                 history = historyStore.load()
@@ -250,13 +289,33 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 busyLabel = null
                 selectedSection = BenchSection.Results
             }.onFailure {
+                heartbeat.cancel()
                 busyLabel = null
+                progress = 0
                 val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
-                val recoveryHint = if (activeEngineId == "whisper-cpp") "\n\nWhisper-Recovery: Wenn danach kein weiterer Whisper-Lauf startet, App einmal komplett schließen und neu öffnen. v0.3.8 bereinigt Temp-Dateien/Modelle pro Lauf; native Library-Zustände können bei schweren Läufen trotzdem hängen bleiben." else ""
-                error = "Benchmark fehlgeschlagen ($activeModelName): ${it.message}$recoveryHint"
+                error = if (it is CancellationException) {
+                    "Benchmark abgebrochen ($activeModelName)."
+                } else {
+                    "Benchmark fehlgeschlagen ($activeModelName): ${it.message}"
+                }
                 selectedSection = BenchSection.Results
             }
+            currentBenchmarkJob = null
         }
+    }
+
+    fun resetWhisperRuntime() {
+        currentBenchmarkJob?.cancel()
+        currentBenchmarkJob = null
+        runCatching { File(context.cacheDir, "bench-work-whisper").deleteRecursively() }
+        runCatching { File(context.cacheDir, "bench-work").deleteRecursively() }
+        System.gc()
+        busyLabel = null
+        progress = 0
+        result = null
+        batchReport = null
+        error = "Whisper-Runtime zurückgesetzt: temporäre WAV-/PCM-Arbeitsdateien wurden gelöscht und ein GC wurde angestoßen. Wenn der native Wrapper trotzdem blockiert, App einmal vollständig schließen und danach mit tiny/base erneut testen."
+        selectedSection = BenchSection.Results
     }
 
     fun runBatchBenchmark() {
@@ -285,7 +344,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         val batchSamples = buildList {
             repeat(batchRepeatCount.coerceAtLeast(1)) { addAll(baseSamples) }
         }
-        scope.launch {
+        if (currentBenchmarkJob?.isActive == true) return
+        currentBenchmarkJob = scope.launch {
             error = null
             result = null
             batchReport = null
@@ -308,10 +368,10 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     history = historyStore.load()
                 }.onFailure { throwable ->
                     busyLabel = null
-                    val recoveryHint = if (activeEngineId == "whisper-cpp") "\n\nWhisper-Recovery: Batch mit tiny/base erneut versuchen. Wenn die App danach keine Whisper-Läufe mehr startet, App komplett schließen und neu öffnen; small bitte zuerst nur als Einzelbenchmark testen." else ""
-                    error = "Batch-Benchmark fehlgeschlagen ($activeModelName): ${throwable.message}$recoveryHint"
+                    error = "Batch-Benchmark fehlgeschlagen ($activeModelName): ${throwable.message}"
                     if (results.isNotEmpty()) batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
                     selectedSection = BenchSection.Results
+                    currentBenchmarkJob = null
                     return@launch
                 }
             }
@@ -319,6 +379,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             busyLabel = null
             historyExpanded = true
             selectedSection = BenchSection.Results
+            currentBenchmarkJob = null
         }
     }
 
@@ -465,6 +526,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     }
                             }
                         },
+                        onResetWhisperRuntime = { resetWhisperRuntime() },
                         onGoModels = { selectedSection = BenchSection.Models },
                         onGoRun = { selectedSection = BenchSection.Run }
                     )
@@ -707,6 +769,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         onClearReference = { referenceText = "" },
                         onComposeLongForm = { profile -> composeLongForm(profile) },
                         onRunSingle = { runSingleBenchmark() },
+                        onCancel = { cancelBenchmark() },
                         onReset = { resetBenchmark(clearBatch = false) },
                         onBatchRepeatChange = { batchRepeatCount = it },
                         onRunBatch = { runBatchBenchmark() },
@@ -829,8 +892,14 @@ private fun ActiveSetupCard(
                 fontSize = 13.sp
             )
             busyLabel?.let {
-                LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                Text("$it $progress%", color = TextMuted, fontSize = 13.sp)
+                val benchmarkBusy = it.contains("Benchmark", ignoreCase = true)
+                if (benchmarkBusy) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(it, color = TextMuted, fontSize = 13.sp)
+                } else {
+                    LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    Text("$it $progress%", color = TextMuted, fontSize = 13.sp)
+                }
             }
         }
     }
@@ -861,8 +930,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.3.6 Fokus") {
-        Text("Diese Version trennt Engine- und Modellzustand sichtbar und installierbar: Vosk nutzt nur Vosk-Modelle, whisper.cpp nutzt nur Whisper-Modelle. Die aktive Engine bleibt auch nach Android-Share/Neustart erhalten.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.3.9 Fokus") {
+        Text("Diese Version räumt die Benchmark-UX auf: ein einziger sichtbarer Laufstatus, keine irreführenden 0%-Benchmarkanzeigen, Abbrechen-Button für laufende Einzel-/Batchläufe und ein eigener Audio-Prep-Experimentbereich.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -894,6 +963,7 @@ private fun EnginesSection(
     onSelectWhisper: (WhisperModelSpec) -> Unit,
     onDownloadWhisper: (WhisperModelSpec) -> Unit,
     onDeleteWhisper: (WhisperModelSpec) -> Unit,
+    onResetWhisperRuntime: () -> Unit,
     onGoModels: () -> Unit,
     onGoRun: () -> Unit
 ) {
@@ -930,9 +1000,36 @@ private fun EnginesSection(
         onDownload = onDownloadWhisper,
         onDelete = onDeleteWhisper
     )
+    WhisperRuntimeRecoveryCard(
+        busy = busyLabel != null,
+        onReset = onResetWhisperRuntime
+    )
     CardBlock(title = "Messlatte für tl;dh") {
         Text("Produktintegration erst bei echten Audios mit Referenztext. Ziel: deutlich unter 25 % WER; ideal eher <= 15 % WER, geringe Deletions und RTF <= 1,0.", color = TextMuted, lineHeight = 20.sp)
         Text("Vosk Small/Big lagen in Deinem Realtest bei ca. 40–47 % WER. Damit: gute Speed-Baseline, aber noch kein sicherer Summary-Unterbau.", color = Warn, lineHeight = 20.sp)
+    }
+}
+
+@Composable
+private fun WhisperRuntimeRecoveryCard(
+    busy: Boolean,
+    onReset: () -> Unit
+) {
+    CardBlock(title = "Whisper Runtime / Hänger") {
+        Text(
+            "Wenn whisper.cpp nach einem fehlgeschlagenen oder abgebrochenen Lauf keine weiteren Benchmarks mehr startet, kannst Du hier den temporären Whisper-Arbeitsbereich leeren. Das ersetzt keinen echten Prozessneustart, verhindert aber häufig kaputte WAV-/PCM-Reste nach einem Hänger.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Text(
+            "Bei small gilt: Ein langer Lauf kann wirklich minutenlang dauern. v0.3.9 zeigt deshalb bewusst nur Laufstatus/Elapsed-Time statt irreführender Prozentwerte.",
+            color = Warn,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        ActionStack {
+            SecondaryActionButton("Whisper-Runtime zurücksetzen", onReset, enabled = !busy)
+        }
     }
 }
 
@@ -949,7 +1046,7 @@ private fun WhisperModelPrepSection(
 ) {
     CardBlock(title = "whisper.cpp Modell-Preflight") {
         Text(
-            "v0.3.8 hält Vosk- und Whisper-Modellpools getrennt. tiny/base/small werden ausschließlich von whisper.cpp genutzt; Small DE/Big DE/TUDA ausschließlich von Vosk Android.",
+            "Vosk- und Whisper-Modellpools sind getrennt. tiny/base/small werden ausschließlich von whisper.cpp genutzt; Small DE/Big DE/TUDA ausschließlich von Vosk Android.",
             color = TextMuted,
             lineHeight = 20.sp
         )
@@ -1031,12 +1128,8 @@ private fun WhisperModelCard(
         }
         Text(spec.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         if (downloading) {
-            val visibleProgress = progress.coerceIn(1, 100)
-            LinearProgressIndicator(progress = { (visibleProgress / 100f).coerceIn(0.01f, 1f) }, modifier = Modifier.fillMaxWidth())
-            Text("${busyLabel.orEmpty()} $visibleProgress%", color = TextMuted, fontSize = 13.sp)
-            if (spec.id == "small" && visibleProgress < 3) {
-                Text("Small ist ca. 466 MiB groß; je nach CDN kann die Anzeige am Anfang langsam anlaufen. v0.3.8 nutzt eine erwartete Dateigröße, damit der Fortschritt nicht dauerhaft bei 0% bleibt.", color = TextMuted, fontSize = 12.sp, lineHeight = 16.sp)
-            }
+            LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            Text("${busyLabel.orEmpty()} $progress%", color = TextMuted, fontSize = 13.sp)
         }
         ActionStack {
             if (installed) {
@@ -1281,6 +1374,7 @@ private fun RunSection(
     onClearReference: () -> Unit,
     onComposeLongForm: (LongFormProfile) -> Unit,
     onRunSingle: () -> Unit,
+    onCancel: () -> Unit,
     onReset: () -> Unit,
     onBatchRepeatChange: (Int) -> Unit,
     onRunBatch: () -> Unit,
@@ -1300,11 +1394,14 @@ private fun RunSection(
         selectedLongFormLabel = selectedLongFormLabel,
         referenceText = referenceText,
         busy = busy,
+        progress = progress,
         busyLabel = busyLabel,
         onRunSingle = onRunSingle,
+        onCancel = onCancel,
         onReset = onReset
     )
     MetricHelpCard()
+    AudioPrepExperimentCard()
     LongFormScenarioCard(
         installedCount = installedSampleCount,
         totalCount = totalSampleCount,
@@ -1333,6 +1430,7 @@ private fun RunSection(
         batchReport = batchReport,
         onRepeatChange = onBatchRepeatChange,
         onRunBatch = onRunBatch,
+        onCancel = onCancel,
         onCopyReport = onCopyBatchReport,
         onClearReport = onClearBatchReport
     )
@@ -1350,8 +1448,10 @@ private fun BenchmarkActionCard(
     selectedLongFormLabel: String?,
     referenceText: String,
     busy: Boolean,
+    progress: Int,
     busyLabel: String?,
     onRunSingle: () -> Unit,
+    onCancel: () -> Unit,
     onReset: () -> Unit
 ) {
     CardBlock(title = "Einzelbenchmark") {
@@ -1396,17 +1496,47 @@ private fun BenchmarkActionCard(
         ActionStack {
             val canRun = sharedAudio != null && activeModelInstalled && !busy && (activeEngineId != "vosk" || selectedModel.deviceSignal != Signal.RED)
             PrimaryActionButton("Diese Audio benchmarken", onRunSingle, enabled = canRun)
-            SecondaryActionButton("Lauf zurücksetzen", onReset, enabled = !busy)
+            if (busy) {
+                SecondaryActionButton("Benchmark abbrechen", onCancel, enabled = true)
+            } else {
+                SecondaryActionButton("Lauf zurücksetzen", onReset, enabled = true)
+            }
         }
         if (busyLabel?.contains("Benchmark") == true && !busyLabel.startsWith("Batch")) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(color = Accent2)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text(busyLabel, color = TextMuted)
+                Text(
+                    if (activeEngineId == "whisper-cpp")
+                        "Hinweis: Die aktuelle Whisper-Integration liefert keinen echten Token-Progress. Die App zeigt deshalb bewusst keinen Prozentwert, sondern nur Laufstatus/Elapsed-Time."
+                    else
+                        "Hinweis: Vosk liefert hier ebenfalls keinen stabilen Zwischenfortschritt. Der Laufstatus ist absichtlich indeterminate.",
+                    color = Warn,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
             }
         }
     }
 }
 
+
+@Composable
+private fun AudioPrepExperimentCard() {
+    CardBlock(title = "Audio-Optimierung / nächster Prüfpfad") {
+        Text(
+            "Die bisherigen Realtests zeigen: cleanes Goldstandard-Audio ist nicht das Problem; echte WhatsApp-Audios mit Bewegung, Atmung, Hall, Hintergrundgeräuschen und spontaner Sprache sind der schwierige Fall. Deshalb wird als nächster Benchmark nicht blind ein weiteres Modell ergänzt, sondern eine vergleichbare Audio-Prep-Testmatrix.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Text(
+            "Geplante Prep-Varianten für vNext: Original, nur Normalisierung, Silence/VAD aggressiver, Loudness + High-Pass, segmentierte 30s-Chunks mit Kontext-Prompt. Danach dieselbe Audio gegen dieselbe Referenz messen.",
+            color = Warn,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+    }
+}
 
 @Composable
 private fun ActiveAudioBox(
@@ -1806,6 +1936,7 @@ private fun BatchBenchmarkCard(
     batchReport: BatchRunReport?,
     onRepeatChange: (Int) -> Unit,
     onRunBatch: () -> Unit,
+    onCancel: () -> Unit,
     onCopyReport: (BatchRunReport) -> Unit,
     onClearReport: () -> Unit
 ) {
@@ -1839,13 +1970,16 @@ private fun BatchBenchmarkCard(
         Text("Für realistische Einzel-Audios mit ca. 30 Sekunden, 90 Sekunden oder 4 Minuten nutze die Longform-Testaudios oben. Für echte WhatsApp-/Telegram-Dateien teile die Audio direkt an diese App.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         ActionStack {
             PrimaryActionButton("Batch starten", onRunBatch, enabled = !busy && installedCount > 0 && activeModelInstalled && (activeEngineId != "vosk" || selectedModel.deviceSignal != Signal.RED))
+            if (busy && busyLabel?.startsWith("Batch") == true) {
+                SecondaryActionButton("Batch abbrechen", onCancel, enabled = true)
+            }
             SecondaryActionButton("Report kopieren", { batchReport?.let(onCopyReport) }, enabled = !busy && batchReport != null)
             SecondaryActionButton("Leeren", onClearReport, enabled = !busy && batchReport != null)
         }
         if (busyLabel?.startsWith("Batch") == true) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(color = Accent2)
-                Text("$busyLabel $progress%", color = TextMuted)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(progress = { (progress / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Text("$busyLabel · $progress%", color = TextMuted)
             }
         }
         batchReport?.let { BatchReportBlock(it) }
