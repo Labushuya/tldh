@@ -181,6 +181,69 @@ class BenchmarkRunner(private val context: Context) {
         )
     }
 
+
+    suspend fun runGroq(
+        sharedAudio: SharedAudio,
+        modelSpec: GroqSttModelSpec,
+        apiKey: String,
+        prompt: String,
+        referenceText: String? = null,
+        audioPrepProfile: AudioPreparationProfile = AudioPreparationProfiles.defaultProfile
+    ): BenchmarkResult = withContext(Dispatchers.IO) {
+        val started = System.currentTimeMillis()
+        val metadata = AudioIngestor(context).inspect(sharedAudio)
+        val workDir = File(context.cacheDir, "bench-work-groq").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+
+        lateinit var prepared: PreparedPcmAudio
+        val decodeMs = measureTimeMillis {
+            prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs, audioPrepProfile)
+        }
+
+        val engineOutput = GroqBenchmarkEngine().transcribe(
+            apiKey = apiKey,
+            modelSpec = modelSpec,
+            pcm = prepared,
+            prompt = prompt,
+            decodeMs = decodeMs,
+            totalStartedAtMs = started,
+            workDir = workDir
+        )
+
+        val timing = BenchmarkTiming(
+            decodeMs = decodeMs,
+            modelLoadMs = engineOutput.modelLoadMs,
+            sttMs = engineOutput.sttMs,
+            totalMs = engineOutput.totalMs,
+            audioDurationMs = metadata.durationMs ?: prepared.durationMs
+        )
+
+        val modelWarnings = listOfNotNull(
+            audioPrepWarning(audioPrepProfile),
+            "Remote Layer: Scope=Remote · Provider=Groq Speech-to-Text · Model=${modelSpec.id}.",
+            "Cloud-Quality-Modus: Nur bewusst nutzen; Audiodatei verlässt das Gerät. Bench-App speichert keine Audiodatei-Historie."
+        )
+        val referenceComparison = ReferenceTextComparator.compare(referenceText, engineOutput.transcript)
+        val comparisonWarnings = comparisonWarnings(referenceComparison)
+        val preprocessingWarnings = preprocessingWarnings(prepared, "Groq")
+
+        BenchmarkResult(
+            engine = "Groq Speech-to-Text",
+            model = modelSpec.displayName,
+            modelId = modelSpec.id,
+            language = "de-DE",
+            metadata = metadata,
+            timing = timing,
+            transcript = engineOutput.transcript,
+            segments = engineOutput.segments,
+            verdict = BenchmarkTargets.verdict(timing.audioDurationMs, timing.totalMs),
+            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + preprocessingWarnings + comparisonWarnings,
+            referenceComparison = referenceComparison
+        )
+    }
+
     private fun whisperTimeoutMs(audioDurationMs: Long, modelSpec: WhisperModelSpec): Long {
         val minimum = when (modelSpec.id) {
             "small" -> 12 * 60_000L

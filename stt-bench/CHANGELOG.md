@@ -1,16 +1,14 @@
 # tl;dh STT Bench Changelog
 
+## 0.5.0
+- Neue Hierarchie: Local/Remote → Engine/Provider → Model.
+- Groq Speech-to-Text als Remote-Provider ergänzt.
+- Groq-Modelle: whisper-large-v3-turbo und whisper-large-v3.
+- Groq-Benchmark nutzt dieselbe Referenztext-, WER-, CER- und S/I/D-Auswertung wie lokale Engines.
+- Remote-Upload erfolgt bewusst über lokal vorbereitetes 16 kHz Mono WAV mit gewähltem Audio-Prep-Profil.
+- Groq API-Key und Prompt im Engines-/Modelle-Tab konfigurierbar.
+
 ## 0.4.0
-
-- Added reproducible Audio-Prep profiles for real-world audio benchmarking.
-- Added Audio-Prep-Matrix runner for same audio + same reference across multiple prep profiles.
-- Added Audio-Prep profile labels to single and matrix Markdown reports.
-- Single benchmark now uses the selected Audio-Prep profile.
-- Corpus batch keeps using the selected Audio-Prep profile.
-- Added deterministic local PCM preprocessing variants: Original, Basic Gate, Normalized, Voice-Band + Basic, Aggressive Gate.
-
-## 0.3.9
-
-- Benchmark progress UI changed to indeterminate status where engines do not expose true progress.
-- Added benchmark/batch cancel UI.
-- Added Audio-Prep placeholder card.
+- Audio-Prep-Matrix für Original, Basic Gate, Normalisierung, Voice-Band und aggressives Gate.
+- Einzelbenchmark und Matrix nutzen gewähltes Audio-Prep-Profil.
+- Matrix-Report für WER/CER/S/I/D pro Profil.

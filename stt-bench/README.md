@@ -1,17 +1,22 @@
 # tl;dh STT Bench
 
-Separate Android benchmark app for local German STT evaluation.
+## v0.5.0
 
-## v0.4.0
+Remote-Layer für Groq Speech-to-Text.
 
-This release adds the Audio-Prep-Matrix for reproducible real-audio tests.
+Neue Struktur:
 
-Profiles:
+```text
+Local  → Vosk Android / whisper.cpp → jeweilige lokale Modelle
+Remote → Groq Speech-to-Text      → whisper-large-v3-turbo / whisper-large-v3
+```
 
-- Original
-- Basic Gate
-- Normalisiert
-- Voice-Band + Basic
-- Aggressives Gate
+Groq läuft gegen dieselbe Benchmark-Auswertung wie Local:
 
-The same audio and the same reference text can be tested across all profiles with the active engine/model. Reports include RTF, WER, CER and S/I/D per profile.
+- Audioquelle
+- Audio-Prep-Profil
+- Referenztext
+- WER/CER/S/I/D
+- History / Markdown-Report
+
+Hinweis: Groq ist Remote/Cloud. Audios verlassen das Gerät nur nach explizitem API-Key/Remote-Auswahl.

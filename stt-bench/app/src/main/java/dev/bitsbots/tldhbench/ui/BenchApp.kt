@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -62,6 +63,8 @@ import androidx.compose.ui.unit.sp
 import dev.bitsbots.tldhbench.BuildConfig
 import dev.bitsbots.tldhbench.bench.BenchmarkResult
 import dev.bitsbots.tldhbench.bench.BenchmarkRunner
+import dev.bitsbots.tldhbench.bench.GroqSttModelCatalog
+import dev.bitsbots.tldhbench.bench.GroqSttModelSpec
 import dev.bitsbots.tldhbench.bench.IntegrationDecisionLevel
 import dev.bitsbots.tldhbench.bench.IntegrationReadiness
 import dev.bitsbots.tldhbench.bench.SttEngineCatalog
@@ -85,6 +88,7 @@ import dev.bitsbots.tldhbench.history.BenchmarkHistoryItem
 import dev.bitsbots.tldhbench.history.BenchmarkHistoryStore
 import dev.bitsbots.tldhbench.models.VoskModelManager
 import dev.bitsbots.tldhbench.models.WhisperModelManager
+import dev.bitsbots.tldhbench.remote.GroqSettingsStore
 import dev.bitsbots.tldhbench.share.AudioSourceKind
 import dev.bitsbots.tldhbench.share.SharedAudio
 import dev.bitsbots.tldhbench.updates.ApkInstaller
@@ -115,6 +119,26 @@ private val FieldBorder = Color(0xFF7A365A)
 private val DisabledBg = Color(0xFF2B1723)
 private val DisabledText = Color(0xFF8D7484)
 
+
+@Composable
+private fun benchTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = TextMain,
+    unfocusedTextColor = TextMain,
+    disabledTextColor = DisabledText,
+    cursorColor = Accent2,
+    focusedContainerColor = FieldBg,
+    unfocusedContainerColor = FieldBg,
+    disabledContainerColor = DisabledBg,
+    focusedBorderColor = Accent2,
+    unfocusedBorderColor = FieldBorder,
+    disabledBorderColor = DisabledText,
+    focusedLabelColor = Accent2,
+    unfocusedLabelColor = TextMuted,
+    disabledLabelColor = DisabledText,
+    focusedPlaceholderColor = TextMuted,
+    unfocusedPlaceholderColor = TextMuted
+)
+
 private val BenchColorScheme = darkColorScheme(
     primary = Accent2,
     onPrimary = TextMain,
@@ -132,6 +156,24 @@ private val BenchColorScheme = darkColorScheme(
 )
 
 
+
+private fun activeEngineDisplayName(engineId: String): String = when (engineId) {
+    "whisper-cpp" -> "whisper.cpp"
+    "groq-stt" -> "Groq Speech-to-Text"
+    else -> "Vosk Android"
+}
+
+private fun activeModelDisplayName(
+    engineId: String,
+    selectedModel: VoskModelSpec,
+    selectedWhisperModel: WhisperModelSpec,
+    selectedGroqModel: GroqSttModelSpec
+): String = when (engineId) {
+    "whisper-cpp" -> selectedWhisperModel.displayName
+    "groq-stt" -> selectedGroqModel.displayName
+    else -> selectedModel.displayName
+}
+
 private fun whisperWatchdogProgress(elapsedSec: Long): Int = when {
     elapsedSec < 3L -> 8
     elapsedSec < 8L -> 14
@@ -148,6 +190,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
     val context = LocalContext.current
     val modelManager = remember { VoskModelManager(context) }
     val whisperModelManager = remember { WhisperModelManager(context) }
+    val groqSettingsStore = remember { GroqSettingsStore(context) }
     val corpusManager = remember { ReferenceCorpusManager(context) }
     val historyStore = remember { BenchmarkHistoryStore(context) }
     val uiStatePrefs = remember { context.getSharedPreferences("bench_ui_state", Context.MODE_PRIVATE) }
@@ -175,9 +218,24 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         )
     }
     val persistedEngineId = remember { uiStatePrefs.getString("active_engine_id", "vosk") ?: "vosk" }
+    var groqApiKeySaved by remember { mutableStateOf(groqSettingsStore.hasApiKey()) }
+    var groqApiKeyDraft by remember { mutableStateOf("") }
+    var groqPrompt by remember { mutableStateOf(groqSettingsStore.prompt()) }
+    var selectedGroqModel by remember {
+        mutableStateOf(
+            GroqSttModelCatalog.byId(
+                uiStatePrefs.getString("selected_groq_model_id", GroqSttModelCatalog.defaultModel.id)
+                    ?: GroqSttModelCatalog.defaultModel.id
+            )
+        )
+    }
     var activeEngineId by remember {
         mutableStateOf(
-            if (persistedEngineId == "whisper-cpp" && initiallyInstalledWhisperIds.isNotEmpty()) "whisper-cpp" else "vosk"
+            when {
+                persistedEngineId == "whisper-cpp" && initiallyInstalledWhisperIds.isNotEmpty() -> "whisper-cpp"
+                persistedEngineId == "groq-stt" && groqApiKeySaved -> "groq-stt"
+                else -> "vosk"
+            }
         )
     }
     var whisperBusyModelId by remember { mutableStateOf<String?>(null) }
@@ -206,6 +264,27 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         busyLabel = null
         progress = 0
         if (clearBatch) batchReport = null
+    }
+
+
+    fun activeModelReady(): Boolean = when (activeEngineId) {
+        "whisper-cpp" -> installedWhisperIds.contains(selectedWhisperModel.id)
+        "groq-stt" -> groqApiKeySaved
+        else -> installedIds.contains(selectedModel.id)
+    }
+
+    fun activeModelName(): String = activeModelDisplayName(activeEngineId, selectedModel, selectedWhisperModel, selectedGroqModel)
+
+    fun activeModelId(): String = when (activeEngineId) {
+        "whisper-cpp" -> selectedWhisperModel.id
+        "groq-stt" -> selectedGroqModel.id
+        else -> selectedModel.id
+    }
+
+    suspend fun runActiveBenchmark(audio: SharedAudio, reference: String?, profile: AudioPreparationProfile): BenchmarkResult = when (activeEngineId) {
+        "whisper-cpp" -> BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, reference, profile)
+        "groq-stt" -> BenchmarkRunner(context).runGroq(audio, selectedGroqModel, groqSettingsStore.apiKey(), groqPrompt, reference, profile)
+        else -> BenchmarkRunner(context).runVosk(audio, selectedModel, reference, profile)
     }
 
     fun selectReferenceSample(sample: ReferenceSample) {
@@ -266,10 +345,10 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             result = null
             progress = 0
             val startedUiAt = System.currentTimeMillis()
-            val activeEngineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
+            val activeEngineLabel = activeEngineDisplayName(activeEngineId)
             busyLabel = "$activeEngineLabel Benchmark läuft · 0s"
             selectedSection = BenchSection.Run
-            val activeModelAtStart = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+            val activeModelAtStart = activeModelDisplayName(activeEngineId, selectedModel, selectedWhisperModel, selectedGroqModel)
             val heartbeat = scope.launch {
                 while (busyLabel != null && result == null && error == null) {
                     val elapsedSec = ((System.currentTimeMillis() - startedUiAt) / 1000L).coerceAtLeast(0L)
@@ -279,10 +358,10 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 }
             }
             runCatching {
-                if (activeEngineId == "whisper-cpp") {
-                    BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText, selectedAudioPrepProfile)
-                } else {
-                    BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText, selectedAudioPrepProfile)
+                when (activeEngineId) {
+                    "whisper-cpp" -> BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText, selectedAudioPrepProfile)
+                    "groq-stt" -> BenchmarkRunner(context).runGroq(audio, selectedGroqModel, groqSettingsStore.apiKey(), groqPrompt, referenceText, selectedAudioPrepProfile)
+                    else -> BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText, selectedAudioPrepProfile)
                 }
             }.onSuccess {
                 heartbeat?.cancel()
@@ -297,7 +376,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 heartbeat.cancel()
                 busyLabel = null
                 progress = 0
-                val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+                val activeModelName = activeModelDisplayName(activeEngineId, selectedModel, selectedWhisperModel, selectedGroqModel)
                 error = if (it is CancellationException) {
                     "Benchmark abgebrochen ($activeModelName)."
                 } else {
@@ -330,12 +409,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             selectedSection = BenchSection.Results
             return
         }
-        val activeModelInstalled = if (activeEngineId == "whisper-cpp") {
-            installedWhisperIds.contains(selectedWhisperModel.id)
-        } else {
-            installedIds.contains(selectedModel.id)
-        }
-        val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+        val activeModelInstalled = activeModelReady()
+        val activeModelName = activeModelName()
         if (!activeModelInstalled) {
             error = "Batch nicht möglich: Installiere zuerst das aktive Modell $activeModelName."
             selectedSection = BenchSection.Results
@@ -362,11 +437,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 runCatching {
                     busyLabel = "Batch ${index + 1}/${batchSamples.size}: ${sample.id}"
                     progress = (((index + 1) * 100) / batchSamples.size).coerceIn(0, 100)
-                    if (activeEngineId == "whisper-cpp") {
-                        BenchmarkRunner(context).runWhisper(corpusManager.sharedAudio(sample), selectedWhisperModel, sample.referenceText, selectedAudioPrepProfile)
-                    } else {
-                        BenchmarkRunner(context).runVosk(corpusManager.sharedAudio(sample), selectedModel, sample.referenceText, selectedAudioPrepProfile)
-                    }
+                    runActiveBenchmark(corpusManager.sharedAudio(sample), sample.referenceText, selectedAudioPrepProfile)
                 }.onSuccess {
                     results += it
                     historyStore.add(it)
@@ -374,13 +445,13 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                 }.onFailure { throwable ->
                     busyLabel = null
                     error = "Batch-Benchmark fehlgeschlagen ($activeModelName): ${throwable.message}"
-                    if (results.isNotEmpty()) batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
+                    if (results.isNotEmpty()) batchReport = BatchRunReport.from(activeModelName, activeModelId(), results, batchRepeatCount)
                     selectedSection = BenchSection.Results
                     currentBenchmarkJob = null
                     return@launch
                 }
             }
-            batchReport = BatchRunReport.from(activeModelName, if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id, results, batchRepeatCount)
+            batchReport = BatchRunReport.from(activeModelName, activeModelId(), results, batchRepeatCount)
             busyLabel = null
             historyExpanded = true
             selectedSection = BenchSection.Results
@@ -400,12 +471,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             selectedSection = BenchSection.Results
             return
         }
-        val activeModelInstalled = if (activeEngineId == "whisper-cpp") {
-            installedWhisperIds.contains(selectedWhisperModel.id)
-        } else {
-            installedIds.contains(selectedModel.id)
-        }
-        val activeModelName = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
+        val activeModelInstalled = activeModelReady()
+        val activeModelName = activeModelName()
         if (!activeModelInstalled) {
             error = "Audio-Prep-Matrix nicht möglich: Installiere zuerst das aktive Modell $activeModelName."
             selectedSection = BenchSection.Results
@@ -432,11 +499,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     selectedAudioPrepProfile = profile
                     busyLabel = "Audio-Prep-Matrix ${index + 1}/${profiles.size}: ${profile.shortLabel}"
                     progress = (((index + 1) * 100) / profiles.size).coerceIn(0, 100)
-                    if (activeEngineId == "whisper-cpp") {
-                        BenchmarkRunner(context).runWhisper(audio, selectedWhisperModel, referenceText, profile)
-                    } else {
-                        BenchmarkRunner(context).runVosk(audio, selectedModel, referenceText, profile)
-                    }
+                    runActiveBenchmark(audio, referenceText, profile)
                 }.onSuccess {
                     results += it
                     historyStore.add(it)
@@ -448,7 +511,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     if (results.isNotEmpty()) {
                         batchReport = BatchRunReport.from(
                             modelName = activeModelName,
-                            modelId = if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id,
+                            modelId = activeModelId(),
                             results = results,
                             repeatCount = 1,
                             reportLabel = "Audio-Prep-Matrix (${results.size}/${profiles.size} Profile)"
@@ -462,7 +525,7 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
             selectedAudioPrepProfile = previousProfile
             batchReport = BatchRunReport.from(
                 modelName = activeModelName,
-                modelId = if (activeEngineId == "whisper-cpp") selectedWhisperModel.id else selectedModel.id,
+                modelId = activeModelId(),
                 results = results,
                 repeatCount = 1,
                 reportLabel = "Audio-Prep-Matrix (${profiles.size} Profile)"
@@ -493,11 +556,12 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
         }
     }
 
-    LaunchedEffect(activeEngineId, selectedModel.id, selectedWhisperModel.id, selectedAudioPrepProfile.id) {
+    LaunchedEffect(activeEngineId, selectedModel.id, selectedWhisperModel.id, selectedGroqModel.id, selectedAudioPrepProfile.id) {
         uiStatePrefs.edit()
             .putString("active_engine_id", activeEngineId)
             .putString("selected_vosk_model_id", selectedModel.id)
             .putString("selected_whisper_model_id", selectedWhisperModel.id)
+            .putString("selected_groq_model_id", selectedGroqModel.id)
             .putString("audio_prep_profile_id", selectedAudioPrepProfile.id)
             .apply()
     }
@@ -528,6 +592,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                     modelInstalled = installedIds.contains(selectedModel.id),
                     selectedWhisperModel = selectedWhisperModel,
                     whisperModelInstalled = installedWhisperIds.contains(selectedWhisperModel.id),
+                    selectedGroqModel = selectedGroqModel,
+                    groqApiKeySaved = groqApiKeySaved,
                     selectedSample = selectedSample,
                     selectedLongFormLabel = selectedLongFormLabel,
                     sharedAudio = sharedAudioState.value,
@@ -554,12 +620,19 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         activeEngineId = activeEngineId,
                         selectedWhisperModel = selectedWhisperModel,
                         installedWhisperIds = installedWhisperIds,
+                        selectedGroqModel = selectedGroqModel,
+                        groqApiKeySaved = groqApiKeySaved,
+                        groqApiKeyDraft = groqApiKeyDraft,
+                        groqPrompt = groqPrompt,
                         whisperBusyModelId = whisperBusyModelId,
                         busyLabel = busyLabel,
                         progress = progress,
                         onActivateEngine = { engineId ->
                             if (engineId == "whisper-cpp" && installedWhisperIds.isEmpty()) {
                                 error = "whisper.cpp kann erst aktiv gesetzt werden, wenn mindestens ein Whisper-Modell geladen ist."
+                                selectedSection = BenchSection.Results
+                            } else if (engineId == "groq-stt" && !groqApiKeySaved) {
+                                error = "Groq Remote-STT kann erst aktiv gesetzt werden, wenn ein Groq API-Key gespeichert ist."
                                 selectedSection = BenchSection.Results
                             } else {
                                 activeEngineId = engineId
@@ -619,6 +692,33 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     }
                             }
                         },
+                        onSelectGroq = { spec ->
+                            selectedGroqModel = spec
+                            if (groqApiKeySaved) activeEngineId = "groq-stt"
+                            result = null
+                            error = null
+                        },
+                        onGroqKeyDraftChange = { groqApiKeyDraft = it },
+                        onSaveGroqKey = {
+                            if (groqApiKeyDraft.isBlank()) {
+                                error = "Groq API-Key Feld ist leer."
+                                selectedSection = BenchSection.Results
+                            } else {
+                                groqSettingsStore.saveApiKey(groqApiKeyDraft)
+                                groqApiKeyDraft = ""
+                                groqApiKeySaved = true
+                                activeEngineId = "groq-stt"
+                                error = null
+                            }
+                        },
+                        onClearGroqKey = {
+                            groqSettingsStore.clearApiKey()
+                            groqApiKeyDraft = ""
+                            groqApiKeySaved = false
+                            if (activeEngineId == "groq-stt") activeEngineId = "vosk"
+                        },
+                        onGroqPromptChange = { groqPrompt = it },
+                        onSaveGroqPrompt = { groqSettingsStore.savePrompt(groqPrompt) },
                         onResetWhisperRuntime = { resetWhisperRuntime() },
                         onGoModels = { selectedSection = BenchSection.Models },
                         onGoRun = { selectedSection = BenchSection.Run }
@@ -630,6 +730,10 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         installedIds = installedIds,
                         selectedWhisperModel = selectedWhisperModel,
                         installedWhisperIds = installedWhisperIds,
+                        selectedGroqModel = selectedGroqModel,
+                        groqApiKeySaved = groqApiKeySaved,
+                        groqApiKeyDraft = groqApiKeyDraft,
+                        groqPrompt = groqPrompt,
                         whisperBusyModelId = whisperBusyModelId,
                         busyLabel = busyLabel,
                         progress = progress,
@@ -731,11 +835,45 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                                     }
                             }
                         },
+                        onSelectGroq = { spec ->
+                            selectedGroqModel = spec
+                            if (groqApiKeySaved) activeEngineId = "groq-stt"
+                            result = null
+                            error = null
+                        },
+                        onGroqKeyDraftChange = { groqApiKeyDraft = it },
+                        onSaveGroqKey = {
+                            if (groqApiKeyDraft.isBlank()) {
+                                error = "Groq API-Key Feld ist leer."
+                                selectedSection = BenchSection.Results
+                            } else {
+                                groqSettingsStore.saveApiKey(groqApiKeyDraft)
+                                groqApiKeyDraft = ""
+                                groqApiKeySaved = true
+                                activeEngineId = "groq-stt"
+                                error = null
+                            }
+                        },
+                        onClearGroqKey = {
+                            groqSettingsStore.clearApiKey()
+                            groqApiKeyDraft = ""
+                            groqApiKeySaved = false
+                            if (activeEngineId == "groq-stt") activeEngineId = "vosk"
+                        },
+                        onGroqPromptChange = { groqPrompt = it },
+                        onSaveGroqPrompt = { groqSettingsStore.savePrompt(groqPrompt) },
                         onSwitchToVosk = { activeEngineId = "vosk" },
                         onSwitchToWhisper = {
                             if (installedWhisperIds.isNotEmpty()) activeEngineId = "whisper-cpp"
                             else {
                                 error = "whisper.cpp kann erst aktiv gesetzt werden, wenn mindestens ein Whisper-Modell geladen ist."
+                                selectedSection = BenchSection.Results
+                            }
+                        },
+                        onSwitchToGroq = {
+                            if (groqApiKeySaved) activeEngineId = "groq-stt"
+                            else {
+                                error = "Groq Remote-STT kann erst aktiv gesetzt werden, wenn ein API-Key gespeichert ist."
                                 selectedSection = BenchSection.Results
                             }
                         }
@@ -839,6 +977,8 @@ fun BenchApp(sharedAudioState: MutableState<SharedAudio?>) {
                         selectedModelInstalled = installedIds.contains(selectedModel.id),
                         selectedWhisperModel = selectedWhisperModel,
                         selectedWhisperModelInstalled = installedWhisperIds.contains(selectedWhisperModel.id),
+                        selectedGroqModel = selectedGroqModel,
+                        groqApiKeySaved = groqApiKeySaved,
                         selectedSample = selectedSample,
                         selectedLongFormLabel = selectedLongFormLabel,
                         referenceText = referenceText,
@@ -958,6 +1098,8 @@ private fun ActiveSetupCard(
     modelInstalled: Boolean,
     selectedWhisperModel: WhisperModelSpec,
     whisperModelInstalled: Boolean,
+    selectedGroqModel: GroqSttModelSpec,
+    groqApiKeySaved: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     sharedAudio: SharedAudio?,
@@ -973,10 +1115,15 @@ private fun ActiveSetupCard(
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Aktueller Prüfstand", color = TextMain, fontWeight = FontWeight.Bold)
-                    val engineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
-                    val modelLabel = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
-                    val modelReady = if (activeEngineId == "whisper-cpp") whisperModelInstalled else modelInstalled
-                    Text("Engine: $engineLabel", color = if (activeEngineId == "whisper-cpp") Accent2 else Good, lineHeight = 18.sp)
+                    val engineLabel = activeEngineDisplayName(activeEngineId)
+                    val modelLabel = activeModelDisplayName(activeEngineId, selectedModel, selectedWhisperModel, selectedGroqModel)
+                    val modelReady = when (activeEngineId) {
+                        "whisper-cpp" -> whisperModelInstalled
+                        "groq-stt" -> groqApiKeySaved
+                        else -> modelInstalled
+                    }
+                    Text("Scope: ${if (activeEngineId == "groq-stt") "Remote" else "Local"}", color = if (activeEngineId == "groq-stt") Warn else Good, lineHeight = 18.sp)
+                    Text("Engine: $engineLabel", color = if (activeEngineId == "whisper-cpp") Accent2 else if (activeEngineId == "groq-stt") Warn else Good, lineHeight = 18.sp)
                     Text("Modell: $modelLabel", color = if (modelReady) Good else Warn, lineHeight = 18.sp)
                     Text("Audio-Prep: ${selectedAudioPrepProfile.displayName}", color = Accent2, lineHeight = 18.sp)
                     Text("Quelle: ${activeAudioSourceLabel(sharedAudio)}", color = if (sharedAudio != null) Good else TextMuted, lineHeight = 18.sp)
@@ -1028,8 +1175,8 @@ private fun StartSection(
             SecondaryActionButton("Updates", onGoUpdates)
         }
     }
-    CardBlock(title = "v0.4.0 Fokus") {
-        Text("Diese Version ergänzt die Audio-Prep-Matrix: dieselbe Real-Audio kann jetzt mit Original, Normalisierung, Basic Gate, Voice-Band und aggressiverem Gate gegen denselben Referenztext verglichen werden.", color = TextMuted, lineHeight = 20.sp)
+    CardBlock(title = "v0.5.0 Fokus") {
+        Text("Diese Version ergänzt den Remote-Scope: Groq Speech-to-Text kann mit whisper-large-v3-turbo oder whisper-large-v3 gegen dieselbe Audio-/Referenz-/WER-Pipeline wie Local getestet werden.", color = TextMuted, lineHeight = 20.sp)
     }
 }
 
@@ -1054,6 +1201,10 @@ private fun EnginesSection(
     activeEngineId: String,
     selectedWhisperModel: WhisperModelSpec,
     installedWhisperIds: Set<String>,
+    selectedGroqModel: GroqSttModelSpec,
+    groqApiKeySaved: Boolean,
+    groqApiKeyDraft: String,
+    groqPrompt: String,
     whisperBusyModelId: String?,
     busyLabel: String?,
     progress: Int,
@@ -1061,19 +1212,25 @@ private fun EnginesSection(
     onSelectWhisper: (WhisperModelSpec) -> Unit,
     onDownloadWhisper: (WhisperModelSpec) -> Unit,
     onDeleteWhisper: (WhisperModelSpec) -> Unit,
+    onSelectGroq: (GroqSttModelSpec) -> Unit,
+    onGroqKeyDraftChange: (String) -> Unit,
+    onSaveGroqKey: () -> Unit,
+    onClearGroqKey: () -> Unit,
+    onGroqPromptChange: (String) -> Unit,
+    onSaveGroqPrompt: () -> Unit,
     onResetWhisperRuntime: () -> Unit,
     onGoModels: () -> Unit,
     onGoRun: () -> Unit
 ) {
     CardBlock(title = "Engine-Schicht / Kandidaten") {
         Text(
-            "Vosk bleibt die schnelle Benchmark-Baseline. whisper.cpp ist jetzt nach geladenem Modell ausführbar und läuft gegen dieselbe Audio-/Referenz-/WER-Pipeline.",
+            "Neue Hierarchie: Local → Engine → Model für Vosk/whisper.cpp und Remote → Provider → Model für Groq Speech-to-Text. Alle ausführbaren Pfade laufen gegen dieselbe Referenz-/WER-/CER-Pipeline.",
             color = TextMuted,
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
         SttEngineCatalog.engines.forEach { engine ->
-            val canActivate = engine.id == "vosk" || (engine.id == "whisper-cpp" && installedWhisperIds.isNotEmpty())
+            val canActivate = engine.id == "vosk" || (engine.id == "whisper-cpp" && installedWhisperIds.isNotEmpty()) || (engine.id == "groq-stt" && groqApiKeySaved)
             EngineCandidateCard(
                 engine = engine,
                 active = activeEngineId == engine.id,
@@ -1098,6 +1255,19 @@ private fun EnginesSection(
         onDownload = onDownloadWhisper,
         onDelete = onDeleteWhisper
     )
+    GroqRemoteSettingsCard(
+        selectedModel = selectedGroqModel,
+        apiKeySaved = groqApiKeySaved,
+        apiKeyDraft = groqApiKeyDraft,
+        prompt = groqPrompt,
+        busy = busyLabel != null,
+        onSelectModel = onSelectGroq,
+        onApiKeyDraftChange = onGroqKeyDraftChange,
+        onSaveApiKey = onSaveGroqKey,
+        onClearApiKey = onClearGroqKey,
+        onPromptChange = onGroqPromptChange,
+        onSavePrompt = onSaveGroqPrompt
+    )
     WhisperRuntimeRecoveryCard(
         busy = busyLabel != null,
         onReset = onResetWhisperRuntime
@@ -1120,7 +1290,7 @@ private fun WhisperRuntimeRecoveryCard(
             lineHeight = 20.sp
         )
         Text(
-            "Bei small gilt: Ein langer Lauf kann wirklich minutenlang dauern. v0.4.0 zeigt deshalb bewusst nur Laufstatus/Elapsed-Time statt irreführender Prozentwerte.",
+            "Bei small gilt: Ein langer Lauf kann wirklich minutenlang dauern. v0.5.0 zeigt deshalb bewusst nur Laufstatus/Elapsed-Time statt irreführender Prozentwerte.",
             color = Warn,
             fontSize = 13.sp,
             lineHeight = 18.sp
@@ -1284,8 +1454,9 @@ private fun EngineCandidateCard(
         ActionStack {
             when {
                 active -> SecondaryActionButton("Aktiv", onClick = {}, enabled = false)
-                canActivate && engine.id in setOf("vosk", "whisper-cpp") -> PrimaryActionButton("Als aktive Engine setzen", onActivate)
+                canActivate && engine.id in setOf("vosk", "whisper-cpp", "groq-stt") -> PrimaryActionButton("Als aktive Engine setzen", onActivate)
                 engine.id == "whisper-cpp" -> SecondaryActionButton("Erst Whisper-Modell laden", onClick = {}, enabled = false)
+                engine.id == "groq-stt" -> SecondaryActionButton("Erst Groq-Key speichern", onClick = {}, enabled = false)
                 else -> SecondaryActionButton("Noch nicht auswählbar", onClick = {}, enabled = false)
             }
         }
@@ -1299,6 +1470,10 @@ private fun ModelsSection(
     installedIds: Set<String>,
     selectedWhisperModel: WhisperModelSpec,
     installedWhisperIds: Set<String>,
+    selectedGroqModel: GroqSttModelSpec,
+    groqApiKeySaved: Boolean,
+    groqApiKeyDraft: String,
+    groqPrompt: String,
     whisperBusyModelId: String?,
     busyLabel: String?,
     progress: Int,
@@ -1308,29 +1483,50 @@ private fun ModelsSection(
     onSelectWhisper: (WhisperModelSpec) -> Unit,
     onDownloadWhisper: (WhisperModelSpec) -> Unit,
     onDeleteWhisper: (WhisperModelSpec) -> Unit,
+    onSelectGroq: (GroqSttModelSpec) -> Unit,
+    onGroqKeyDraftChange: (String) -> Unit,
+    onSaveGroqKey: () -> Unit,
+    onClearGroqKey: () -> Unit,
+    onGroqPromptChange: (String) -> Unit,
+    onSaveGroqPrompt: () -> Unit,
     onSwitchToVosk: () -> Unit,
-    onSwitchToWhisper: () -> Unit
+    onSwitchToWhisper: () -> Unit,
+    onSwitchToGroq: () -> Unit
 ) {
     val whisperActive = activeEngineId == "whisper-cpp"
-    val activePoolLabel = if (whisperActive) "whisper.cpp · Whisper ggml-Modelle" else "Vosk Android · Vosk-Modellordner"
+    val groqActive = activeEngineId == "groq-stt"
+    val activePoolLabel = when {
+        groqActive -> "Remote · Groq Speech-to-Text API-Modelle"
+        whisperActive -> "Local · whisper.cpp · Whisper ggml-Modelle"
+        else -> "Local · Vosk Android · Vosk-Modellordner"
+    }
 
-    CardBlock(title = "Aktiver Modellpool") {
-        Text("Aktive Engine: ${if (whisperActive) "whisper.cpp" else "Vosk Android"}", color = TextMain, fontWeight = FontWeight.Bold)
-        Text("Dieser Tab zeigt jetzt bewusst nur die Modelle, die zur aktiven Engine gehören: $activePoolLabel.", color = TextMuted, lineHeight = 20.sp)
-        Text(
-            if (whisperActive) "Vosk-Modelle werden hier nicht eingeblendet, damit kein falscher Eindruck entsteht. Zum Wechsel Vosk Android aktivieren." else "Whisper-Modelle werden hier nicht eingeblendet, damit kein falscher Eindruck entsteht. Zum Wechsel whisper.cpp aktivieren.",
-            color = TextMuted,
-            fontSize = 13.sp,
-            lineHeight = 18.sp
-        )
+    CardBlock(title = "Aktiver Scope / Modellpool") {
+        Text("Scope: ${if (groqActive) "Remote" else "Local"}", color = if (groqActive) Warn else Good, fontWeight = FontWeight.Bold)
+        Text("Aktive Engine: ${activeEngineDisplayName(activeEngineId)}", color = TextMain, fontWeight = FontWeight.Bold)
+        Text("Dieser Tab zeigt nur den Modellpool der aktiven Engine: $activePoolLabel.", color = TextMuted, lineHeight = 20.sp)
         ActionStack {
-            if (whisperActive) SecondaryActionButton("Zu Vosk Android wechseln", onSwitchToVosk, enabled = busyLabel == null)
-            else SecondaryActionButton("Zu whisper.cpp wechseln", onSwitchToWhisper, enabled = busyLabel == null)
+            if (!groqActive) SecondaryActionButton("Zu Groq Remote wechseln", onSwitchToGroq, enabled = busyLabel == null)
+            if (!whisperActive) SecondaryActionButton("Zu whisper.cpp wechseln", onSwitchToWhisper, enabled = busyLabel == null)
+            if (activeEngineId != "vosk") SecondaryActionButton("Zu Vosk Android wechseln", onSwitchToVosk, enabled = busyLabel == null)
         }
     }
 
-    if (whisperActive) {
-        WhisperModelPoolSection(
+    when {
+        groqActive -> GroqModelPoolSection(
+            selectedModel = selectedGroqModel,
+            apiKeySaved = groqApiKeySaved,
+            apiKeyDraft = groqApiKeyDraft,
+            prompt = groqPrompt,
+            busy = busyLabel != null,
+            onSelect = onSelectGroq,
+            onApiKeyDraftChange = onGroqKeyDraftChange,
+            onSaveApiKey = onSaveGroqKey,
+            onClearApiKey = onClearGroqKey,
+            onPromptChange = onGroqPromptChange,
+            onSavePrompt = onSaveGroqPrompt
+        )
+        whisperActive -> WhisperModelPoolSection(
             selectedModel = selectedWhisperModel,
             installedIds = installedWhisperIds,
             busyModelId = whisperBusyModelId,
@@ -1340,8 +1536,7 @@ private fun ModelsSection(
             onDownload = onDownloadWhisper,
             onDelete = onDeleteWhisper
         )
-    } else {
-        VoskModelPoolSection(
+        else -> VoskModelPoolSection(
             selectedModel = selectedModel,
             installedIds = installedIds,
             busyLabel = busyLabel,
@@ -1350,6 +1545,154 @@ private fun ModelsSection(
             onDownload = onDownloadVosk,
             onDelete = onDeleteVosk
         )
+    }
+}
+
+
+@Composable
+private fun GroqRemoteSettingsCard(
+    selectedModel: GroqSttModelSpec,
+    apiKeySaved: Boolean,
+    apiKeyDraft: String,
+    prompt: String,
+    busy: Boolean,
+    onSelectModel: (GroqSttModelSpec) -> Unit,
+    onApiKeyDraftChange: (String) -> Unit,
+    onSaveApiKey: () -> Unit,
+    onClearApiKey: () -> Unit,
+    onPromptChange: (String) -> Unit,
+    onSavePrompt: () -> Unit
+) {
+    CardBlock(title = "Remote / Groq Speech-to-Text") {
+        Text(
+            "Remote-Scope für High-End-Vergleich: Groq transkribiert über die OpenAI-kompatible Audio-Transcriptions-API. Die Bench-App nutzt dieselbe Referenztext-/WER-/CER-/S/I/D-Auswertung wie Local.",
+            color = TextMuted,
+            lineHeight = 20.sp
+        )
+        Text(
+            if (apiKeySaved) "API-Key gespeichert · Remote-Benchmarks können gestartet werden." else "API-Key fehlt · Groq bleibt blockiert, bis Du einen Key speicherst.",
+            color = if (apiKeySaved) Good else Warn,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text("Aktives Groq-Modell: ${selectedModel.displayName}", color = TextMain, fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            value = apiKeyDraft,
+            onValueChange = onApiKeyDraftChange,
+            label = { Text("Groq API-Key", color = TextMuted) },
+            placeholder = { Text(if (apiKeySaved) "Neuen Key einfügen, um zu ersetzen" else "gsk_…", color = TextMuted) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = benchTextFieldColors()
+        )
+        ActionStack {
+            PrimaryActionButton(if (apiKeySaved) "Groq-Key ersetzen" else "Groq-Key speichern", onSaveApiKey, enabled = !busy)
+            SecondaryActionButton("Groq-Key löschen", onClearApiKey, enabled = !busy && apiKeySaved)
+        }
+        OutlinedTextField(
+            value = prompt,
+            onValueChange = onPromptChange,
+            label = { Text("Groq Prompt / Kontext", color = TextMuted) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
+            colors = benchTextFieldColors()
+        )
+        ActionStack {
+            SecondaryActionButton("Prompt speichern", onSavePrompt, enabled = !busy)
+        }
+        Text(
+            "Datenschutz-Hinweis: Diese Bench-Version speichert den API-Key app-intern. Für Produktbetrieb: Android Keystore/Encrypted Storage, explizites Opt-in pro Audio und sichtbarer Provider-/Retention-Hinweis.",
+            color = Warn,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+    }
+}
+
+@Composable
+private fun GroqModelPoolSection(
+    selectedModel: GroqSttModelSpec,
+    apiKeySaved: Boolean,
+    apiKeyDraft: String,
+    prompt: String,
+    busy: Boolean,
+    onSelect: (GroqSttModelSpec) -> Unit,
+    onApiKeyDraftChange: (String) -> Unit,
+    onSaveApiKey: () -> Unit,
+    onClearApiKey: () -> Unit,
+    onPromptChange: (String) -> Unit,
+    onSavePrompt: () -> Unit
+) {
+    GroqRemoteSettingsCard(
+        selectedModel = selectedModel,
+        apiKeySaved = apiKeySaved,
+        apiKeyDraft = apiKeyDraft,
+        prompt = prompt,
+        busy = busy,
+        onSelectModel = onSelect,
+        onApiKeyDraftChange = onApiKeyDraftChange,
+        onSaveApiKey = onSaveApiKey,
+        onClearApiKey = onClearApiKey,
+        onPromptChange = onPromptChange,
+        onSavePrompt = onSavePrompt
+    )
+    CardBlock(title = "Groq Modelle · nur Remote") {
+        Text("Diese Modelle werden nicht lokal ausgeführt. Die Audio wird mit dem gewählten Audio-Prep-Profil als 16 kHz Mono WAV vorbereitet und an Groq hochgeladen.", color = TextMuted, lineHeight = 20.sp)
+        Spacer(Modifier.height(8.dp))
+        GroqSttModelCatalog.models.forEach { spec ->
+            GroqModelCard(
+                spec = spec,
+                selected = selectedModel.id == spec.id,
+                apiKeySaved = apiKeySaved,
+                busy = busy,
+                onSelect = { onSelect(spec) }
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+@Composable
+private fun GroqModelCard(
+    spec: GroqSttModelSpec,
+    selected: Boolean,
+    apiKeySaved: Boolean,
+    busy: Boolean,
+    onSelect: () -> Unit
+) {
+    val border = when {
+        selected && apiKeySaved -> Warn
+        selected -> Accent2
+        else -> FieldBorder
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF10070C), RoundedCornerShape(18.dp))
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(spec.displayName, color = TextMain, fontWeight = FontWeight.Bold)
+                Text(spec.sizeLabel, color = TextMuted, fontSize = 13.sp)
+            }
+            Text(
+                if (selected) "aktiv" else "remote",
+                color = if (selected) Warn else TextMuted,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.End
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SignalChip("Speed", spec.speedSignal)
+            SignalChip("Qualität", spec.accuracySignal)
+            SignalChip("Privacy", spec.privacySignal)
+        }
+        Text(spec.tradeoff, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Text(spec.notes, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        ActionStack {
+            PrimaryActionButton(if (selected) "Groq-Modell aktiv" else "Groq-Modell aktiv setzen", onSelect, enabled = !busy)
+        }
     }
 }
 
@@ -1457,6 +1800,8 @@ private fun RunSection(
     selectedModelInstalled: Boolean,
     selectedWhisperModel: WhisperModelSpec,
     selectedWhisperModelInstalled: Boolean,
+    selectedGroqModel: GroqSttModelSpec,
+    groqApiKeySaved: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     referenceText: String,
@@ -1482,7 +1827,11 @@ private fun RunSection(
     onCopyBatchReport: (BatchRunReport) -> Unit,
     onClearBatchReport: () -> Unit
 ) {
-    val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
+    val activeModelInstalled = when (activeEngineId) {
+        "whisper-cpp" -> selectedWhisperModelInstalled
+        "groq-stt" -> groqApiKeySaved
+        else -> selectedModelInstalled
+    }
 
     BenchmarkActionCard(
         sharedAudio = sharedAudio,
@@ -1491,6 +1840,8 @@ private fun RunSection(
         selectedModelInstalled = selectedModelInstalled,
         selectedWhisperModel = selectedWhisperModel,
         selectedWhisperModelInstalled = selectedWhisperModelInstalled,
+        selectedGroqModel = selectedGroqModel,
+        groqApiKeySaved = groqApiKeySaved,
         selectedSample = selectedSample,
         selectedLongFormLabel = selectedLongFormLabel,
         referenceText = referenceText,
@@ -1536,6 +1887,8 @@ private fun RunSection(
         selectedModelInstalled = selectedModelInstalled,
         selectedWhisperModel = selectedWhisperModel,
         selectedWhisperModelInstalled = selectedWhisperModelInstalled,
+        selectedGroqModel = selectedGroqModel,
+        groqApiKeySaved = groqApiKeySaved,
         busy = busy,
         progress = progress,
         busyLabel = busyLabel,
@@ -1557,6 +1910,8 @@ private fun BenchmarkActionCard(
     selectedModelInstalled: Boolean,
     selectedWhisperModel: WhisperModelSpec,
     selectedWhisperModelInstalled: Boolean,
+    selectedGroqModel: GroqSttModelSpec,
+    groqApiKeySaved: Boolean,
     selectedSample: ReferenceSample?,
     selectedLongFormLabel: String?,
     referenceText: String,
@@ -1576,17 +1931,30 @@ private fun BenchmarkActionCard(
             referenceText = referenceText
         )
         Spacer(Modifier.height(8.dp))
-        val activeEngineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
-        val activeModelLabel = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
-        val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
+        val activeEngineLabel = activeEngineDisplayName(activeEngineId)
+        val activeModelLabel = activeModelDisplayName(activeEngineId, selectedModel, selectedWhisperModel, selectedGroqModel)
+        val activeModelInstalled = when (activeEngineId) {
+            "whisper-cpp" -> selectedWhisperModelInstalled
+            "groq-stt" -> groqApiKeySaved
+            else -> selectedModelInstalled
+        }
+        Text("Scope: ${if (activeEngineId == "groq-stt") "Remote" else "Local"}", color = if (activeEngineId == "groq-stt") Warn else Good, fontWeight = FontWeight.SemiBold)
         Text("Aktive Engine: $activeEngineLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Aktives Modell: $activeModelLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Audio-Prep: ${selectedAudioPrepProfile.displayName}", color = Accent2, fontWeight = FontWeight.SemiBold)
         Text(selectedAudioPrepProfile.description, color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
-        if (!activeModelInstalled) Text("Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
+        if (!activeModelInstalled) Text(if (activeEngineId == "groq-stt") "Groq API-Key fehlt. Im Engines-Tab speichern." else "Ausgewähltes Modell ist noch nicht installiert.", color = Warn)
         if (activeEngineId == "whisper-cpp") {
             Text(
-                "whisper.cpp ist aktiv. Erste Integration: Gesamttranskript ohne Wort-Zeitstempel; WER/CER/S/I/D funktionieren mit Referenztext.",
+                "whisper.cpp ist aktiv. Erste Integration: Gesamttranskript mit Segment-Zeitstempeln; WER/CER/S/I/D funktionieren mit Referenztext.",
+                color = Warn,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        }
+        if (activeEngineId == "groq-stt") {
+            Text(
+                "Groq Remote ist aktiv. Die App bereitet Audio lokal als 16 kHz Mono WAV vor und lädt sie dann an Groq hoch. Referenzvergleich läuft danach identisch lokal.",
                 color = Warn,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
@@ -2082,6 +2450,8 @@ private fun BatchBenchmarkCard(
     selectedModelInstalled: Boolean,
     selectedWhisperModel: WhisperModelSpec,
     selectedWhisperModelInstalled: Boolean,
+    selectedGroqModel: GroqSttModelSpec,
+    groqApiKeySaved: Boolean,
     busy: Boolean,
     progress: Int,
     busyLabel: String?,
@@ -2100,9 +2470,14 @@ private fun BatchBenchmarkCard(
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
-        val activeEngineLabel = if (activeEngineId == "whisper-cpp") "whisper.cpp" else "Vosk Android"
-        val activeModelLabel = if (activeEngineId == "whisper-cpp") selectedWhisperModel.displayName else selectedModel.displayName
-        val activeModelInstalled = if (activeEngineId == "whisper-cpp") selectedWhisperModelInstalled else selectedModelInstalled
+        val activeEngineLabel = activeEngineDisplayName(activeEngineId)
+        val activeModelLabel = activeModelDisplayName(activeEngineId, selectedModel, selectedWhisperModel, selectedGroqModel)
+        val activeModelInstalled = when (activeEngineId) {
+            "whisper-cpp" -> selectedWhisperModelInstalled
+            "groq-stt" -> groqApiKeySaved
+            else -> selectedModelInstalled
+        }
+        Text("Scope: ${if (activeEngineId == "groq-stt") "Remote" else "Local"}", color = if (activeEngineId == "groq-stt") Warn else Good, fontWeight = FontWeight.SemiBold)
         Text("Aktive Engine: $activeEngineLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Aktives Modell: $activeModelLabel", color = TextMain, fontWeight = FontWeight.SemiBold)
         Text("Goldstandard-Audios bereit: $installedCount/$totalCount", color = if (installedCount > 0) Good else TextMuted)

@@ -38,7 +38,7 @@ object SttEngineCatalog {
             localMode = "On-device · offline · ausführbarer whisper.cpp Runner mit Deutsch-Lock",
             expectedStrength = "Voraussichtlich deutlich robuster bei freier deutscher Sprache, Hintergrundgeräuschen und spontaner WhatsApp-Sprache.",
             expectedRisk = "Wahrscheinlich langsamer und größer als Vosk; tiny/base/small müssen real gegen dieselben deutschen Referenzen gemessen werden.",
-            nextStep = "v0.4.0: dieselbe Real-Audio über Audio-Prep-Matrix messen; danach quantisierte Whisper-Modelle prüfen."
+            nextStep = "v0.5.0: Local/Remote-Vergleich gegen Groq Large v3 Turbo/Large v3 auswerten; danach Chunking/Quantisierung separat prüfen."
         ),
         SttEngineSpec(
             id = "sherpa-onnx",
@@ -49,6 +49,16 @@ object SttEngineCatalog {
             expectedStrength = "Potentiell guter Mobile-Kompromiss aus Streaming, Offline-Betrieb und moderner Modellpipeline.",
             expectedRisk = "Deutsches Modell, Lizenz, Paketgröße und Android-Performance müssen erst belastbar geprüft werden.",
             nextStep = "Nach whisper.cpp als zweiter Nicht-Vosk-Kandidat einbauen, sofern ein passendes deutsches Modell feststeht."
+        ),
+        SttEngineSpec(
+            id = "groq-stt",
+            displayName = "Groq Speech-to-Text",
+            shortLabel = "remote",
+            readiness = SttEngineReadiness.EXTERNAL,
+            localMode = "Remote · Cloud API · expliziter Opt-in mit eigenem API-Key",
+            expectedStrength = "Whisper Large v3 / Turbo als High-End-Referenz gegen dieselbe Audio-/Referenz-/WER-Pipeline.",
+            expectedRisk = "Audio verlässt das Gerät. Datenschutz nur mit bewusster Provider-Auswahl, Zero-Data-Retention-Setting und sauberem Opt-in vertretbar.",
+            nextStep = "Als Remote-Scope aktivieren, API-Key speichern und dieselbe Real-Audio gegen Groq Large v3 Turbo/Large v3 benchmarken."
         ),
         SttEngineSpec(
             id = "lan-whisper",
