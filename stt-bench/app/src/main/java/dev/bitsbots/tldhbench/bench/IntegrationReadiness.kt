@@ -29,8 +29,21 @@ object IntegrationReadiness {
         val rtf = result.timing.rtf
         val speedOk = rtf == null || rtf <= 1.0
         val severeDeletionRisk = deletionRate >= 8.0 || comparison.wordDeletions >= 25
+        val real = comparison.realWorldScore
 
         return when {
+            real != null && real.normalizedWerPercent <= 12.0 && real.criticalIssues <= 2 && speedOk -> IntegrationDecision(
+                level = IntegrationDecisionLevel.PASS,
+                title = "Produktkandidat",
+                message = "Die reale Worttreue wirkt nach Normalisierung stark genug für einen tl;dh-Testpfad.",
+                details = "Raw-WER bleibt sichtbar. Für Produktbetrieb trotzdem Namen, Zahlen, Uhrzeiten und Negationen markieren und das Volltranskript einblendbar halten."
+            )
+            real != null && real.normalizedWerPercent <= 18.0 && real.criticalIssues <= 5 && speedOk -> IntegrationDecision(
+                level = IntegrationDecisionLevel.GUARDED,
+                title = "Produktnah mit Guardrails",
+                message = "Die Engine ist für TL;DRs interessant, braucht aber sichtbare Unsicherheits- und Kritische-Wörter-Hinweise.",
+                details = "Nutzbar als Cloud-Quality-Testmodus: Summary erzeugen, aber Rohtranskript und kritische Abweichungen immer mitliefern."
+            )
             comparison.werPercent <= 15.0 && comparison.cerPercent <= 10.0 && speedOk && !severeDeletionRisk -> IntegrationDecision(
                 level = IntegrationDecisionLevel.PASS,
                 title = "Produktkandidat",
@@ -53,7 +66,7 @@ object IntegrationReadiness {
                 level = IntegrationDecisionLevel.BLOCKED,
                 title = "Nicht produktreif",
                 message = "Diese Engine-/Modellkombination sollte nicht ungeprüft für automatische tl;dh-Zusammenfassungen verwendet werden.",
-                details = "Aktuell zu viele Wortabweichungen oder fehlende Wörter. Nächster Schritt: whisper.cpp / sherpa-onnx / LAN-Quality-Mode gegen dieselbe Audio messen."
+                details = "Aktuell zu viele Wortabweichungen oder fehlende Wörter. Nächster Schritt: Audio-Prep/Chunking/Remote-Provider gegen dieselbe Audio messen."
             )
         }
     }

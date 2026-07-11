@@ -118,6 +118,17 @@ data class WordDiff(
     val hypothesisWord: String?
 )
 
+data class RealWorldScore(
+    val normalizedWordCount: Int,
+    val normalizedWordDistance: Int,
+    val normalizedWerPercent: Double,
+    val contentMatchPercent: Double,
+    val criticalIssues: Int,
+    val harmlessOrLowImpactIssues: Int,
+    val readinessLabel: String,
+    val summary: String
+)
+
 data class ReferenceComparison(
     val referenceRaw: String,
     val hypothesisRaw: String,
@@ -133,7 +144,8 @@ data class ReferenceComparison(
     val cerPercent: Double,
     val qualityLabel: String,
     val summary: String,
-    val wordDiffs: List<WordDiff> = emptyList()
+    val wordDiffs: List<WordDiff> = emptyList(),
+    val realWorldScore: RealWorldScore? = null
 )
 
 data class BenchmarkResult(

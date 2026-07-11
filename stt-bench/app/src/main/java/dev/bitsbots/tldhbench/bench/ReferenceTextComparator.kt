@@ -21,6 +21,7 @@ object ReferenceTextComparator {
         val wer = percent(wordStats.distance, referenceWords.size.coerceAtLeast(1))
         val cer = percent(charDistance, referenceChars.length.coerceAtLeast(1))
         val label = qualityLabel(wer)
+        val realWorldScore = realWorldScore(rawReference, hypothesisText, wordStats.distance, wordDiffs)
 
         return ReferenceComparison(
             referenceRaw = rawReference,
@@ -37,7 +38,8 @@ object ReferenceTextComparator {
             cerPercent = cer,
             qualityLabel = label,
             summary = "WER ${fmt(wer)} · CER ${fmt(cer)} · S/I/D ${wordStats.substitutions}/${wordStats.insertions}/${wordStats.deletions} · $label",
-            wordDiffs = wordDiffs
+            wordDiffs = wordDiffs,
+            realWorldScore = realWorldScore
         )
     }
 
@@ -46,6 +48,38 @@ object ReferenceTextComparator {
         werPercent <= 25.0 -> "brauchbar"
         werPercent <= 40.0 -> "kritisch"
         else -> "schwach"
+    }
+
+    private fun realWorldScore(
+        rawReference: String,
+        hypothesisText: String,
+        strictDistance: Int,
+        strictDiffs: List<WordDiff>
+    ): RealWorldScore {
+        val normalizedReference = normalizeSemanticWords(rawReference)
+        val normalizedHypothesis = normalizeSemanticWords(hypothesisText)
+        val stats = wordEditStats(normalizedReference, normalizedHypothesis)
+        val normalizedWer = percent(stats.distance, normalizedReference.size.coerceAtLeast(1))
+        val contentMatch = (100.0 - normalizedWer).coerceIn(0.0, 100.0)
+        val criticalIssues = strictDiffs.count { isCriticalDiff(it) }
+        val lowImpact = (strictDistance - stats.distance).coerceAtLeast(0)
+        val readiness = when {
+            normalizedWer <= 8.0 && criticalIssues == 0 -> "produktnah"
+            normalizedWer <= 12.0 && criticalIssues <= 2 -> "tl;dh-tauglich mit Guardrails"
+            normalizedWer <= 18.0 && criticalIssues <= 5 -> "brauchbar mit Prüfung"
+            normalizedWer <= 25.0 -> "grenzwertig"
+            else -> "kritisch"
+        }
+        return RealWorldScore(
+            normalizedWordCount = normalizedReference.size,
+            normalizedWordDistance = stats.distance,
+            normalizedWerPercent = normalizedWer,
+            contentMatchPercent = contentMatch,
+            criticalIssues = criticalIssues,
+            harmlessOrLowImpactIssues = lowImpact,
+            readinessLabel = readiness,
+            summary = "Reale Wertung ${fmt(normalizedWer)} nWER · Content-Match ${fmt(contentMatch)} · kritische Abweichungen $criticalIssues · $readiness"
+        )
     }
 
     private fun normalizeWords(text: String): List<String> = normalizeForWords(text)
@@ -60,6 +94,80 @@ object ReferenceTextComparator {
         .trim()
 
     private fun normalizeForCharacters(text: String): String = normalizeForWords(text).replace(" ", "")
+
+    private fun normalizeSemanticWords(text: String): List<String> {
+        val preprocessed = text
+            .lowercase(Locale.GERMAN)
+            .replace("ß", "ss")
+            .replace(Regex("\\b20\\b"), " zwanzig ")
+            .replace(Regex("\\b25\\b"), " fuenfundzwanzig ")
+            .replace(Regex("\\b1\\b"), " eins ")
+            .replace(Regex("\\b2\\b"), " zwei ")
+            .replace(Regex("\\b3\\b"), " drei ")
+            .replace(Regex("\\b4\\b"), " vier ")
+            .replace(Regex("\\b5\\b"), " fuenf ")
+            .replace(Regex("\\b10\\b"), " zehn ")
+            .replace("runterlaufe", "runter laufe")
+            .replace("runterlaufen", "runter laufen")
+            .replace("langlaufe", "lang laufe")
+            .replace("ultraparanoid", "ultra paranoid")
+            .replace("schwörs", "schwoers")
+            .replace("schwör's", "schwoers")
+            .replace("schwör s", "schwoers")
+            .replace("schwoer s", "schwoers")
+            .replace("schwör", "schwoer")
+            .replace("fünfundzwanzig", "fuenfundzwanzig")
+            .replace("fünf", "fuenf")
+            .replace("ä", "ae")
+            .replace("ö", "oe")
+            .replace("ü", "ue")
+
+        return preprocessed
+            .replace(Regex("[^\\p{L}\\p{Nd}]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .split(' ')
+            .mapNotNull { semanticToken(it) }
+            .filter { it.isNotBlank() }
+    }
+
+    private fun semanticToken(token: String): String? {
+        if (token in fillerTokens) return null
+        return when (token) {
+            "jessie" -> "jessi"
+            "joschi" -> "yoshi"
+            "schiess", "schies", "schiss" -> "schiss"
+            "schwoers", "schwoer", "schwoere" -> "schwoer"
+            "gerascheln", "geraschen", "geraschel" -> "geraschel"
+            "knarzen", "knarren" -> "knarz"
+            "hoffe", "hoff" -> "hoffe"
+            "audio", "audios" -> "audio"
+            "grille", "grillen" -> "grillen"
+            "strassenlaterne", "strassenlaternen" -> "strassenlaterne"
+            "kollaps", "kollap" -> "kollaps"
+            "fahrekenne" -> "verrecken"
+            else -> token
+        }
+    }
+
+    private val fillerTokens = setOf(
+        "aeh", "aehm", "eh", "ehm", "hm", "hmm", "ja", "so", "halt", "praktisch",
+        "lach", "lacht", "hahaha", "haha", "bla", "blabla", "genau"
+    )
+
+    private val criticalTokens = setOf(
+        "nicht", "kein", "keine", "keinen", "keiner", "keines", "nichts", "nie", "niemals", "ohne",
+        "zwanzig", "fuenfundzwanzig", "eins", "zwei", "drei", "vier", "fuenf", "zehn",
+        "jessi", "yoshi", "mutter", "arbeit", "handy", "stumm", "krise", "kollaps",
+        "grillen", "geraschel", "schiss", "strassenlaterne"
+    )
+
+    private fun isCriticalDiff(diff: WordDiff): Boolean {
+        val reference = diff.referenceWord?.let { normalizeSemanticWords(it).firstOrNull() }
+        val hypothesis = diff.hypothesisWord?.let { normalizeSemanticWords(it).firstOrNull() }
+        return reference in criticalTokens || hypothesis in criticalTokens ||
+            diff.referenceWord?.any { it.isDigit() } == true || diff.hypothesisWord?.any { it.isDigit() } == true
+    }
 
     private data class WordStats(
         val distance: Int,

@@ -2753,6 +2753,23 @@ private fun ReferenceComparisonBlock(comparison: dev.bitsbots.tldhbench.bench.Re
     ) {
         Text("Abweichungsübersicht", color = TextMain, fontWeight = FontWeight.Bold)
         Text(comparison.summary, color = comparisonColor(comparison.werPercent), fontWeight = FontWeight.SemiBold)
+        comparison.realWorldScore?.let { real ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF102014), RoundedCornerShape(14.dp))
+                    .border(1.dp, Good.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text("Reale tl;dh-Wertung", color = Good, fontWeight = FontWeight.Bold)
+                MetricLine("Normalisierte WER", fmtPct(real.normalizedWerPercent))
+                MetricLine("Content-Match", fmtPct(real.contentMatchPercent))
+                MetricLine("Kritische Abweichungen", real.criticalIssues.toString())
+                MetricLine("Low-Impact bereinigt", real.harmlessOrLowImpactIssues.toString())
+                Text(real.readinessLabel, color = Good, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2767,7 +2784,7 @@ private fun ReferenceComparisonBlock(comparison: dev.bitsbots.tldhbench.bench.Re
             MetricLine("Zeichenfehler", "${comparison.charDistance} von ${comparison.referenceCharCount} Zeichen")
         }
         Text(
-            "WER ist der Blick auf Wörter; CER ist der Blick auf Zeichen. S/I/D sind die konkreten Wortfehler hinter der WER.",
+            "Raw-WER/CER sind streng. Die reale tl;dh-Wertung normalisiert Low-Impact-Unterschiede wie Zahlformate, Füllwörter, leichte Schreibvarianten und fokussiert kritische Wörter wie Negationen, Namen und Zahlen.",
             color = TextMuted,
             fontSize = 13.sp,
             lineHeight = 18.sp
@@ -3043,6 +3060,10 @@ private fun BenchmarkResult.toMarkdown(): String {
     }
     referenceComparison?.let { comparison ->
         lines += "- Referenzvergleich: ${comparison.summary}"
+        comparison.realWorldScore?.let { real ->
+            lines += "- Reale tl;dh-Wertung: ${real.summary}"
+            lines += "- Normalisierte Wortfehler: ${real.normalizedWordDistance} von ${real.normalizedWordCount}; Low-Impact bereinigt: ${real.harmlessOrLowImpactIssues}; kritische Abweichungen: ${real.criticalIssues}"
+        }
         lines += "- Wortfehler: ${comparison.wordDistance} von ${comparison.referenceWordCount}; S/I/D ${comparison.wordSubstitutions}/${comparison.wordInsertions}/${comparison.wordDeletions}"
         if (comparison.wordDiffs.isNotEmpty()) {
             lines += "- Erste Wortabweichungen: " + comparison.wordDiffs.take(40).joinToString("; ") { formatWordDiff(it) }

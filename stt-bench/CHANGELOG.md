@@ -12,3 +12,13 @@
 - Audio-Prep-Matrix für Original, Basic Gate, Normalisierung, Voice-Band und aggressives Gate.
 - Einzelbenchmark und Matrix nutzen gewähltes Audio-Prep-Profil.
 - Matrix-Report für WER/CER/S/I/D pro Profil.
+
+
+## v0.5.1 - Real-World Worttreue / tl;dh-Wertung
+
+- Ergänzt zusätzlich zur strengen WER/CER eine reale tl;dh-Wertung.
+- Normalisiert Low-Impact-Abweichungen wie Zahlformate, Füllwörter, leichte Schreib-/Namensvarianten und einfache Wortformen.
+- Zeigt Content-Match, normalisierte WER, bereinigte Low-Impact-Abweichungen und kritische Abweichungen.
+- Produktentscheidung nutzt die reale Wertung, wenn Referenztext vorhanden ist.
+- Markdown-Report enthält strenge WER/CER und reale tl;dh-Wertung separat.
+
