@@ -41,6 +41,16 @@ object SttEngineCatalog {
             nextStep = "v0.5.0: Local/Remote-Vergleich gegen Groq Large v3 Turbo/Large v3 auswerten; danach Chunking/Quantisierung separat prüfen."
         ),
         SttEngineSpec(
+            id = "whistle",
+            displayName = "Whistle (Cactus)",
+            shortLabel = "ausführbar",
+            readiness = SttEngineReadiness.ACTIVE,
+            localMode = "On-device · offline · needle-Engine als eigener Prozess · 16.9-MB-Modell mit Deutsch-Lock",
+            expectedStrength = "Sehr klein (16.9 MB statt 142 MB bei Whisper base), Wort-Zeitstempel mit Wahrscheinlichkeit, Apache-2.0. Im Desktop-Test etwa auf Whisper-base-Niveau.",
+            expectedRisk = "Kein Qualitätssprung gegenüber Whisper base; die Engine-eigenen 30-s-Fenster ließen im Desktop-Test ganze Sätze aus. Tempo auf ARM-Handys noch ungemessen.",
+            nextStep = "v0.6.0: Pausen-Chunking gegen Engine-Fenster und Tiefe 4 auf dem Magic V2 messen; danach gegen whisper.cpp base/small auf denselben echten Audios vergleichen."
+        ),
+        SttEngineSpec(
             id = "sherpa-onnx",
             displayName = "sherpa-onnx",
             shortLabel = "geplant",

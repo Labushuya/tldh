@@ -77,3 +77,26 @@ Product-readiness thresholds used by the app:
 5. Test `Whisper small` only if tiny/base are stable and storage/battery/time are acceptable.
 6. Compare RTF, WER, CER, S/I/D and deletion risk against Vosk Small DE 0.15 and Big DE 0.21.
 7. Treat crashes, very long hangs or RTF > 1.0 on 4-6 minute audios as strong signals for LAN/Tower quality mode instead of phone-only product integration.
+
+
+## v0.6.0 Whistle test protocol
+
+Desktop pre-test before integration (Linux x86-64 `needle` CLI, 49 Kerstin gold-standard sentences ≈ 4:10 min, strict WER as in `ReferenceTextComparator`; "WhatsApp-like" = Opus 16 kbit/s VoIP, "noisy" = additionally pink noise at 10 dB SNR):
+
+| Engine | clean | WhatsApp-like | noisy | 4:26 min clean (deletions) |
+|---|---:|---:|---:|---:|
+| Whisper base (faster-whisper int8) | 14.5 % | 15.0 % | 21.0 % | 14.7 % (4) |
+| Whistle, engine windows | 15.7 % | 16.0 % | 21.2 % | 20.2 % (42) |
+| Whistle, app pause chunking ≤ 25 s | – | – | – | 15.7 % (8) |
+| Whisper small (faster-whisper int8) | 10.0 % | 10.3 % | 11.6 % | 8.6 % (4) |
+
+Takeaways: Whistle ≈ Whisper base at one eighth of the size; Whisper small is the only clear quality step. Whistle's own 30 s windowing dropped three consecutive sentences at one window boundary (reproducible), which app-side pause chunking avoids. Desktop speed does not transfer to the phone (x86 vs. ARM), so speed must be measured on the Magic V2.
+
+On-device protocol:
+
+1. **Engines** → load the Whistle model (16.9 MB) and activate Whistle.
+2. Run the gold-standard batch (1× corpus) with **Pausen-Chunking**. Compare WER/CER/S/I/D and RTF against whisper.cpp base on the same corpus.
+3. Generate the **4 min longform** audio and run it once with **Pausen-Chunking** and once with **Engine-Fenster**. Deletions should stay low with pause chunking; a block of missing sentences in the engine-window run confirms the windowing issue on device.
+4. Repeat step 2 with **Pausen-Chunking · Tiefe 4** to see whether the faster decoder is worth the extra errors on the phone.
+5. Run the same real WhatsApp audios + reference texts used for the Vosk/Whisper reports.
+6. Whistle is only interesting for tl;dh if it is clearly faster than whisper.cpp base on the phone at similar WER; otherwise whisper.cpp small (quality) or base (speed) remain the candidates.

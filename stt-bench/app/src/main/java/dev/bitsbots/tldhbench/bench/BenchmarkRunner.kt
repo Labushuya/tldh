@@ -8,6 +8,7 @@ import dev.bitsbots.tldhbench.audio.PcmAudioPreparer
 import dev.bitsbots.tldhbench.audio.PreparedPcmAudio
 import dev.bitsbots.tldhbench.models.VoskModelManager
 import dev.bitsbots.tldhbench.models.WhisperModelManager
+import dev.bitsbots.tldhbench.models.WhistleModelManager
 import dev.bitsbots.tldhbench.share.SharedAudio
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -19,6 +20,7 @@ import kotlin.system.measureTimeMillis
 class BenchmarkRunner(private val context: Context) {
     private val voskModelManager = VoskModelManager(context)
     private val whisperModelManager = WhisperModelManager(context)
+    private val whistleModelManager = WhistleModelManager(context)
 
     suspend fun runVosk(
         sharedAudio: SharedAudio,
@@ -181,6 +183,77 @@ class BenchmarkRunner(private val context: Context) {
         )
     }
 
+
+    suspend fun runWhistle(
+        sharedAudio: SharedAudio,
+        modeSpec: WhistleModeSpec,
+        referenceText: String? = null,
+        audioPrepProfile: AudioPreparationProfile = AudioPreparationProfiles.defaultProfile
+    ): BenchmarkResult = withContext(Dispatchers.Default) {
+        if (!whistleModelManager.isRuntimeAvailable()) {
+            throw IllegalStateException("Whistle-Runtime (needle) fehlt in diesem Build. Sie wird nur für arm64-v8a mitgeliefert.")
+        }
+        if (!whistleModelManager.isInstalled()) {
+            throw IllegalStateException("${WhistleModel.displayName} ist nicht installiert. Erst Whistle-Modell herunterladen.")
+        }
+
+        val started = System.currentTimeMillis()
+        val metadata = AudioIngestor(context).inspect(sharedAudio)
+        val workDir = File(context.cacheDir, "bench-work-whistle").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+
+        lateinit var prepared: PreparedPcmAudio
+        val decodeMs = measureTimeMillis {
+            prepared = PcmAudioPreparer(context, workDir).prepare(sharedAudio.uri, metadata.durationMs, audioPrepProfile)
+        }
+
+        val engineOutput = WhistleBenchmarkEngine(
+            runtimeFile = whistleModelManager.runtimeFile(),
+            modelFile = whistleModelManager.modelFile()
+        ).transcribe(
+            pcm = prepared,
+            mode = modeSpec,
+            decodeMs = decodeMs,
+            totalStartedAtMs = started,
+            workDir = workDir
+        )
+
+        val timing = BenchmarkTiming(
+            decodeMs = decodeMs,
+            modelLoadMs = engineOutput.modelLoadMs,
+            sttMs = engineOutput.sttMs,
+            totalMs = engineOutput.totalMs,
+            audioDurationMs = metadata.durationMs ?: prepared.durationMs
+        )
+
+        val modelWarnings = listOfNotNull(
+            audioPrepWarning(audioPrepProfile),
+            if (modeSpec.accuracySignal == Signal.RED) {
+                "${modeSpec.displayName} ist ein Vergleichs-/Experimentiermodus. Für die Qualitätsbewertung Pausen-Chunking mit voller Tiefe heranziehen."
+            } else {
+                null
+            }
+        )
+        val referenceComparison = ReferenceTextComparator.compare(referenceText, engineOutput.transcript)
+        val comparisonWarnings = comparisonWarnings(referenceComparison)
+        val preprocessingWarnings = preprocessingWarnings(prepared, "Whistle")
+
+        BenchmarkResult(
+            engine = "Whistle",
+            model = modeSpec.displayName,
+            modelId = "whistle-${modeSpec.id}",
+            language = "de-DE",
+            metadata = metadata,
+            timing = timing,
+            transcript = engineOutput.transcript,
+            segments = engineOutput.segments,
+            verdict = BenchmarkTargets.verdict(timing.audioDurationMs, timing.totalMs),
+            warnings = metadata.validation.warnings + modelWarnings + engineOutput.warnings + preprocessingWarnings + comparisonWarnings,
+            referenceComparison = referenceComparison
+        )
+    }
 
     suspend fun runGroq(
         sharedAudio: SharedAudio,
