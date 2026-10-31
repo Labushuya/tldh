@@ -65,7 +65,10 @@ class TldhWorkService : Service() {
             observer = scope.launch {
                 engine.work.conflate().collect { next ->
                     if (next == null) {
-                        stop()
+                        // A finished model download can hand over straight to the waiting voice
+                        // note; don't drop the service in that gap.
+                        delay(HANDOVER_GRACE_MS)
+                        if (engine.currentWork() == null) stop()
                     } else {
                         show(next)
                         delay(NOTIFY_INTERVAL_MS)
@@ -116,6 +119,7 @@ class TldhWorkService : Service() {
         const val ACTION_CANCEL = "dev.bitsbots.tldh.action.CANCEL_WORK"
         private const val MAX_WAKE_LOCK_MS = 60L * 60L * 1000L
         private const val NOTIFY_INTERVAL_MS = 500L
+        private const val HANDOVER_GRACE_MS = 400L
     }
 }
 
