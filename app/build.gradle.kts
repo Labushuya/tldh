@@ -8,10 +8,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.7.0"
+    ?: "0.7.1"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "700").toInt()
+    ?: "701").toInt()
 
 /** NDK used to cross-compile whisper.cpp; CI installs exactly this version via sdkmanager. */
 val whisperNdkVersion = "27.2.12479018"

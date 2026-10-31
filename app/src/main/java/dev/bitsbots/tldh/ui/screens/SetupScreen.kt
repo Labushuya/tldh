@@ -13,13 +13,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.bitsbots.tldh.transcription.WhisperModelCatalog
 import dev.bitsbots.tldh.transcription.WhisperModelSpec
 import dev.bitsbots.tldh.ui.ModelUiState
 import dev.bitsbots.tldh.ui.components.GlassScaffold
@@ -41,7 +42,8 @@ fun SetupScreen(
     onUseInstalled: (WhisperModelSpec) -> Unit,
     onClose: () -> Unit
 ) {
-    var selected by remember { mutableStateOf(models.recommended) }
+    var selectedId by rememberSaveable { mutableStateOf(models.recommended.id) }
+    val selected = WhisperModelCatalog.byId(selectedId) ?: models.recommended
     val download = models.download
     GlassScaffold(
         topBar = {
@@ -109,7 +111,7 @@ fun SetupScreen(
                     ModelOptions(
                         models = models,
                         selected = download?.spec ?: selected,
-                        onSelect = { selected = it },
+                        onSelect = { selectedId = it.id },
                         statusFor = { spec ->
                             if (spec in models.installed) "Bereits geladen" to true else "${spec.sizeLabel} Download, einmalig" to false
                         }

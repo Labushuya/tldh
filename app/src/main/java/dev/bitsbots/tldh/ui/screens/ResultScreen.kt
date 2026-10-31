@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,7 +117,7 @@ fun ResultScreen(
     var playing by remember { mutableStateOf<PlayingSnippet?>(null) }
     var playJob by remember { mutableStateOf<Job?>(null) }
     var copied by remember { mutableStateOf<String?>(null) }
-    var showDetails by remember { mutableStateOf(false) }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied != null) {
             delay(1800)
@@ -537,7 +538,7 @@ private fun TranscriptSection(
     markUncertain: Boolean,
     onWordTap: (Int, TranscriptWord) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val collapsible = transcript.length > 240
     val reduced = LocalReducedMotion.current
     val rotation by animateFloatAsState(if (expanded) 180f else 0f, tween(200, easing = TldhMotion.Enter), label = "chevron")

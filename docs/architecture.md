@@ -1,11 +1,13 @@
 # Architecture
 
-## Current v0.7.0 shape
+## Current v0.7.1 shape
 
 ```text
 ACTION_SEND intent (share)        ACTION_OPEN_DOCUMENT ("Audiodatei öffnen")
   ↓                                 ↓
-MainActivity / TldhApp (state machine: Idle → NeedsModel → Processing → Result | Error)
+MainActivity (handles the intent once) → TldhEngine (process-wide; state machine
+                                          Idle → NeedsModel → Processing → Result | Error)
+  ↓                                        ↘ TldhWorkService (foreground service + wake lock while work runs)
   ↓
 SessionManager (wipe previous session, new session folder)
   ↓
@@ -29,7 +31,7 @@ Compose screens: Start · Setup · Processing · Result · Settings · Error
 Close result → session wipe → Start with confirmation
 ```
 
-UI code lives in `ui/`: `TldhApp.kt` (state, navigation, processing, model downloads), `screens/` (one file per screen), `components/` (glass, controls, surfaces, waveform, icons) and `theme/` (tokens from [DESIGN.md](../DESIGN.md)). Pure text formatting for the screens is in `ui/UiText.kt` and unit-tested.
+`engine/TldhEngine.kt` owns the pipeline, model downloads and the update download as `StateFlow`s, so configuration changes and leaving the app never interrupt them; `engine/TldhWorkService.kt` keeps the process alive with a progress notification while work runs. UI code lives in `ui/`: `TldhApp.kt` (observes the engine, navigation), `screens/` (one file per screen), `components/` (glass, controls, surfaces, waveform, icons) and `theme/` (tokens from [DESIGN.md](../DESIGN.md)). Pure text formatting for the screens is in `ui/UiText.kt` and unit-tested.
 
 Glass: `Modifier.glassSource` records the scrolling content into a `GraphicsLayer`; `GlassPane` draws that layer again with a `BlurEffect`, clipped to its shape, under a tint and a hairline. On Android < 12 the pane falls back to a near-opaque tint.
 

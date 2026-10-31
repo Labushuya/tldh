@@ -14,12 +14,12 @@
 
 **too long; didn't hear.** Share a WhatsApp voice note to tl;dh and read what it says in seconds: a verbatim summary, the questions and dates in it, ready-made replies. Everything runs on your phone. Nothing is uploaded.
 
-> **Status:** `v0.7.0` · redesigned app. New look with frosted-glass details, open audio files directly, live text while transcribing, and a clean start screen after every session.
+> **Status:** `v0.7.1` · redesigned app that keeps working in the background. Rotate the phone, switch apps or turn the display off: the voice note keeps processing and tl;dh tells you when it's done.
 
 ## How it works
 
 1. In WhatsApp, long-press a voice note → **Share** → **tl;dh**, or tap **Audiodatei öffnen** in the app.
-2. tl;dh transcribes it on the device with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). You watch the waveform fill and the first sentences appear.
+2. tl;dh transcribes it on the device with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). You can watch the waveform fill and the first sentences appear, or put the phone away: processing continues in the background and a notification tells you when it's ready.
 3. You get the result:
    - **Kurz gesagt** – the most informative sentences, word for word from the transcript.
    - **Stellen prüfen** – uncertain words that can change the meaning (negations, times, numbers, conditions, must/can), each with a play button for that exact moment.
@@ -36,6 +36,7 @@ Nothing is generated or invented: summaries and replies are built by rules from 
 - Internet is used for exactly two things, both only when you tap: downloading a recognition model once (60 or 190 MB, pinned revision, SHA-256 verified) and checking for app updates.
 - Audio and transcript live in a per-session folder that is wiped when you close the result, when you share the next voice note, and on the next app start (in case Android killed the app).
 - Copied text is marked as sensitive, so Android 13+ hides it from the clipboard preview.
+- Notifications (progress, "Zusammenfassung fertig") never contain anything from the voice note.
 
 Details: [docs/privacy.md](docs/privacy.md).
 
@@ -77,7 +78,8 @@ More: [architecture](docs/architecture.md) · [release process](docs/release.md)
 | `0.4.0` | whisper.cpp transcription, word confidence, snippet playback |
 | `0.5.0` | Meaning checks, rule-based TL;DR and key points |
 | `0.6.0` | Reply suggestions in three tones, note mode |
-| **`0.7.0`** | **Redesign: new screens, glass details, file picker, live text, new icon** |
+| `0.7.0` | Redesign: new screens, glass details, file picker, live text, new icon |
+| **`0.7.1`** | **Background processing that survives rotation and display off** |
 | `0.8.x` | Optional on-device AI pack for capable phones, after an LLM benchmark in the STT bench (never required) |
 | later | Tags and categories |
 | `0.9.0` | Testing, benchmarking, release candidate |

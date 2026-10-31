@@ -1,6 +1,7 @@
 package dev.bitsbots.tldh.updates
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
@@ -73,6 +74,7 @@ class GitHubReleaseClient(
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var written = 0L
                     while (true) {
+                        ensureActive()
                         val read = input.read(buffer)
                         if (read <= 0) break
                         output.write(buffer, 0, read)
@@ -98,7 +100,7 @@ class GitHubReleaseClient(
         } catch (io: IOException) {
             tmp.delete()
             throw IllegalStateException(
-                "Download wurde unterbrochen. tl;dh hält das Gerät während des Downloads wach; lasse die App trotzdem geöffnet und starte den Download erneut, falls Android oder die Netzwerkverbindung ihn beendet hat.",
+                "Download wurde unterbrochen, vermutlich durch die Netzwerkverbindung. Bitte erneut starten.",
                 io
             )
         } finally {

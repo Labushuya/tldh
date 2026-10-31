@@ -43,6 +43,12 @@ Audio picked with "Audiodatei öffnen" is read through the system file picker's 
 
 Hard process kills can bypass Android lifecycle callbacks. Therefore orphan cleanup on next launch is mandatory.
 
+## Background work and notifications
+
+Transcription and downloads run in an app-wide engine. While something is running, tl;dh starts a foreground service (types `mediaProcessing` on Android 15+, `dataSync` before) with a silent progress notification and a partial wake lock, so the work continues when the app is in the background or the display is off. The display is never kept on. The service stops as soon as nothing runs.
+
+When a summary finishes while tl;dh is not visible, it posts a "Zusammenfassung fertig" notification. Notifications contain only generic text, never words from the voice note. On Android 13+ the notification permission is requested once, when background work first starts; if it is denied, work still continues without visible notifications.
+
 ## Clipboard
 
 When users tap Copy, Android owns the clipboard content. The app cannot guarantee clipboard lifetime or visibility behavior across all Android versions and OEM skins.
