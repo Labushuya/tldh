@@ -14,7 +14,7 @@
 
 **too long; didn't hear.** Share a WhatsApp voice note to tl;dh and read what it says in seconds: a verbatim summary, the questions and dates in it, ready-made replies. Everything runs on your phone. Nothing is uploaded.
 
-> **Status:** `v0.7.3` · redesigned app that keeps working in the background. Rotate the phone, switch apps or turn the display off: the voice note keeps processing and tl;dh tells you when it's done.
+> **Status:** `v0.7.4` · redesigned app that keeps working in the background. Rotate the phone, switch apps or turn the display off: the voice note keeps processing and tl;dh tells you when it's done.
 
 ## How it works
 
