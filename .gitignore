@@ -22,3 +22,6 @@ Thumbs.db
 
 # App/runtime temp
 tldh-session-*
+
+# Test-only x86_64 whisper-cli built by the e2e emulator workflow
+app/src/debug/jniLibs/
