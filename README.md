@@ -8,7 +8,7 @@
 
 Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.3.0` local transcription spike. Share Target, audio ingest, duration guardrails, one-APK updater and the first device-level local transcription path are implemented. Native `whisper.cpp` hardening is next.
+> **Status:** `v0.4.0` local Whisper transcription. Voice notes are transcribed on the device with `whisper.cpp`; uncertain words are highlighted and can be replayed with one tap. The rule-based summary with meaning-critical word warnings is next (`v0.5.0`).
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
 ![Android](https://img.shields.io/badge/Android-local--first-A50B5E)
@@ -20,19 +20,17 @@ Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target t
 
 WhatsApp voice notes are often long, unstructured, and time-expensive. `tl;dh` lets you share an audio file into the app and receive:
 
-- TL;DR
-- key points
-- tags
-- category
-- reply suggestions
-- copy-ready output
+- a local transcript where uncertain words are marked (tap to hear that moment)
+- TL;DR and key points (questions to you, dates and numbers, tasks)
+- warnings for meaning-critical words that were recognized with low confidence (negations, times, numbers, names)
+- reply suggestions and a note mode, copied straight to the clipboard
 
-The current spike attempts local device transcription first. If the Android on-device file recognizer is unavailable or unreliable, tl;dh falls back to the validated audio-ingest/guardrail output instead of pretending a transcript exists.
+The base pipeline is rule-based and runs on every arm64 phone. An optional on-device AI pack for capable phones is planned after a separate LLM benchmark; it will never be required.
 
 ## MVP flow
 
 ```text
-WhatsApp audio → Android Sharesheet → tl;dh → local inspect → duration gate → local transcription spike → compact output → copy result → session wipe
+WhatsApp audio → Android Sharesheet → tl;dh → local inspect → duration gate → whisper.cpp transcription → highlighted transcript → copy result → session wipe
 ```
 
 ## Supported sources
@@ -57,7 +55,7 @@ Core behavior:
 - no persistent audio/transcript/result storage
 - session files wiped on start and explicit close
 
-`tl;dh` is a single APK. The app is fully usable offline. Internet is only used when the user manually taps the in-app update check.
+`tl;dh` is a single APK. The app is fully usable offline. Internet is only used when the user taps the in-app update check or downloads a Whisper model (once, 60 or 190 MB, from a pinned Hugging Face revision, SHA-256 verified).
 
 Important: Android does not guarantee every lifecycle callback after a hard process kill. `tl;dh` therefore wipes orphaned session files at next startup. Clipboard content is controlled by Android after you copy text.
 
@@ -81,7 +79,7 @@ This one app includes:
 
 - offline-capable Share Target and audio ingest
 - duration guardrails for long voice notes
-- first local transcription spike when device support is available
+- local `whisper.cpp` transcription with word-level confidence and snippet playback
 - manual stable in-app update check
 - APK download with SHA256 verification
 - Android installer handoff after explicit user confirmation
@@ -97,6 +95,8 @@ No background update polling. No silent installs. No notification-based stale up
 - `targetSdk = 36`
 - `minSdk = 28`
 - primary ABI: `arm64-v8a`
+- `whisper.cpp` `v1.9.5` (`whisper-cli`, built from source in CI, two CPU variants)
+- Whisper models: `base` and `small`, q5_1 quantized, downloaded on demand
 - package: `dev.bitsbots.tldh`
 
 ## Local build
@@ -155,11 +155,11 @@ A release is eligible only if:
 | `0.2.4` | Duration probing and long-audio guardrails |
 | `0.2.5` | Brand refresh, app icon/banner update, bottom breathing room and guarded update downloads |
 | `0.3.0` | Local transcription spike with Android on-device file recognition and PCM preparation |
-| `0.3.1` | Native `whisper.cpp` hardening and bundled local model strategy |
-| `0.4.0` | Session wipe + privacy hardening |
-| `0.5.0` | TL;DR + key points |
-| `0.6.0` | Tags + categories |
-| `0.7.0` | Reply suggestions |
+| `0.4.0` | `whisper.cpp` transcription, model download per device class, word confidence + snippet playback, session wipe per share |
+| `0.5.0` | Meaning-critical word warnings, rule-based TL;DR and key points (questions, dates/numbers, tasks) |
+| `0.6.0` | Reply templates, note mode, clipboard |
+| `0.7.x` | Optional on-device AI pack for capable phones, after an LLM benchmark in the STT bench |
+| later | Tags + categories |
 | `0.9.0` | Testing, benchmarking, RC |
 | `1.0.0` | Public stable release |
 
@@ -194,3 +194,12 @@ Duration warnings are now shown directly below the TL;DR and included in the cop
 - Shared audio is decoded through Android's media stack and converted to 16 kHz mono PCM for the local recognizer path.
 - The spike uses Android's on-device file recognition when the device supports it. If not, the app clearly reports that fallback state and keeps the previous validated ingest/guardrail behavior.
 - Native `whisper.cpp` remains the next hardening step after proving the local file-transcription path on the Magic V2.
+
+
+## v0.4.0 Local Whisper transcription
+
+- The Android on-device recognizer spike is replaced by `whisper.cpp` (`v1.9.5`), cross-compiled for arm64-v8a in CI and bundled as an executable in two CPU variants (baseline armv8-a and armv8.2-a with dotprod/fp16, picked at runtime).
+- Whisper models are downloaded once on demand: `base` (≈ 60 MB, every device) or `small` (≈ 190 MB, recommended for phones with a fast CPU and ≥ 6 GB RAM).
+- Every word carries whisper's token probability. Uncertain words are highlighted (yellow / red); tapping one replays the moment around it.
+- The TL;DR card shows the first sentences as a preview until the rule-based summary of `v0.5.0`.
+- Each new share wipes the previous session; copied text is marked as sensitive for the Android clipboard preview.

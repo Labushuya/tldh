@@ -7,6 +7,23 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.4.0] - 2026-10-31
+
+### Added
+- Local transcription with `whisper.cpp` `v1.9.5`: `whisper-cli` is cross-compiled for arm64-v8a in CI (pinned tag and commit) and bundled in two CPU variants, selected at runtime from `/proc/cpuinfo`.
+- On-demand Whisper model download (`base` q5_1 ≈ 60 MB, `small` q5_1 ≈ 190 MB) from a pinned Hugging Face revision with size and SHA-256 verification, plus a device-based recommendation.
+- Word-level confidence from whisper's token probabilities with three levels; uncertain words are highlighted in the transcript.
+- Tap an uncertain word to replay the moment around it from the session audio.
+- Processing progress with cancel; whisper runs as a child process, so cancelling stops it immediately.
+
+### Changed
+- The Android on-device recognizer spike is removed.
+- The TL;DR card is labeled as a preview of the first sentences until the rule-based summary of v0.5.0.
+- Each new share wipes the previous session before processing.
+- Copied text is flagged as sensitive so Android 13+ hides it in the clipboard preview.
+- Roadmap: meaning-critical word warnings and summary next (0.5.0), replies and note mode (0.6.0); tags and categories postponed.
+
+
 ## [0.3.0] - 2026-07-04
 
 ### Added

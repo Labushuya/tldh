@@ -6,11 +6,19 @@
 
 The app is fully usable offline. Sharing and inspecting WhatsApp/Telegram audio does not require internet access.
 
-The app has internet permission only because the single release APK includes a manual in-app update check. No update check runs automatically.
+The app has internet permission for two manual actions only: the in-app update check and the one-time Whisper model download. Neither runs automatically.
 
 ## Network behavior
 
-Network access is only used when the user explicitly taps `Nach stabilem Update suchen`.
+Network access is only used when the user explicitly taps `Nach stabilem Update suchen` or `Laden` on a Whisper model.
+
+The model download:
+
+- fetches `ggml-base-q5_1.bin` or `ggml-small-q5_1.bin` from a pinned Hugging Face revision
+- verifies size and SHA-256 before the model is used
+- stores the model in app-private storage (`files/whisper-models`), outside the session folders
+
+Audio is never uploaded. Transcription runs entirely on the device.
 
 The update check:
 

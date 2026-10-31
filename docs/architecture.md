@@ -1,22 +1,26 @@
 # Architecture
 
-## Current v0.1.0 shape
+## Current v0.4.0 shape
 
 ```text
 ACTION_SEND Intent
   ↓
-MainActivity
+MainActivity → SessionManager (wipe previous session)
   ↓
-ShareIntentReader
+ShareIntentReader → AudioIngestor (format, size, duration guardrails)
   ↓
-AudioIngestor
+PcmAudioPreparer (MediaCodec decode → 16 kHz mono PCM16)
   ↓
-AudioFormatDetector
+WhisperCliTranscriber (whisper-cli child process, --output-json-full)
   ↓
-FakeSummaryEngine
+WhisperJsonParser → WordAssembler (words + token probabilities + timestamps)
   ↓
-Compose Result UI
+PreviewSummaryEngine (first sentences until v0.5.0)
+  ↓
+Compose Result UI (highlighted transcript, SnippetPlayer)
 ```
+
+`whisper-cli` is built from `whisper.cpp` source by `scripts/build-whisper-android.sh` (Gradle task `buildWhisperCli`) and packaged as `lib/arm64-v8a/libwhisper_cli*.so`, so Android extracts it into the native library dir, the one app location it may execute from.
 
 ## Target architecture
 
@@ -29,7 +33,7 @@ AudioIngestor
   ↓
 AudioDecoder / Normalizer
   ↓
-whisper.cpp JNI transcription
+whisper.cpp transcription (child process)
   ↓
 Local Summarizer
   ↓

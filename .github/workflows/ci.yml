@@ -32,6 +32,20 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android NDK for whisper.cpp
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "ndk;27.2.12479018"
+
+      - name: Cache whisper.cpp Android build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/build/whisper-native/jniLibs
+            app/build/whisper-native/work/stamp
+          key: whisper-native-${{ hashFiles('scripts/build-whisper-android.sh') }}
+
       - name: Run lint, unit tests and debug build
         run: bash scripts/gradle.sh lintDebug testDebugUnitTest assembleDebug
 
@@ -121,6 +135,22 @@ jobs:
       - name: Install Android SDK
         if: steps.existing.outputs.exists != 'true'
         uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK for whisper.cpp
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "ndk;27.2.12479018"
+
+      - name: Cache whisper.cpp Android build
+        if: steps.existing.outputs.exists != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/build/whisper-native/jniLibs
+            app/build/whisper-native/work/stamp
+          key: whisper-native-${{ hashFiles('scripts/build-whisper-android.sh') }}
 
       - name: Decode release keystore
         if: steps.existing.outputs.exists != 'true'
