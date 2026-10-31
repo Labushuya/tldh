@@ -30,7 +30,32 @@ jobs:
           java-version: '17'
 
       - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          # setup-android@v3 defaults install the removed legacy "tools" package and fail with
+          # "Failed to find package 'tools'" on current runners; install exact packages instead.
+          packages: ''
+
+      - name: Install Android SDK packages and NDK for whisper.cpp
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          for attempt in 1 2 3; do
+            if sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"; then
+              exit 0
+            fi
+            echo "sdkmanager install failed on attempt ${attempt}/3. Retrying after short delay..."
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Cache whisper.cpp Android build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/build/whisper-native/jniLibs
+            app/build/whisper-native/work/stamp
+          key: whisper-native-${{ hashFiles('scripts/build-whisper-android.sh') }}
 
       - name: Run lint, unit tests and debug build
         run: bash scripts/gradle.sh lintDebug testDebugUnitTest assembleDebug
@@ -120,7 +145,34 @@ jobs:
 
       - name: Install Android SDK
         if: steps.existing.outputs.exists != 'true'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          # setup-android@v3 defaults install the removed legacy "tools" package and fail with
+          # "Failed to find package 'tools'" on current runners; install exact packages instead.
+          packages: ''
+
+      - name: Install Android SDK packages and NDK for whisper.cpp
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          for attempt in 1 2 3; do
+            if sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"; then
+              exit 0
+            fi
+            echo "sdkmanager install failed on attempt ${attempt}/3. Retrying after short delay..."
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Cache whisper.cpp Android build
+        if: steps.existing.outputs.exists != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/build/whisper-native/jniLibs
+            app/build/whisper-native/work/stamp
+          key: whisper-native-${{ hashFiles('scripts/build-whisper-android.sh') }}
 
       - name: Decode release keystore
         if: steps.existing.outputs.exists != 'true'

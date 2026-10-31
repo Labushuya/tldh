@@ -1,3 +1,6 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -5,10 +8,56 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.3.0"
+    ?: "0.4.0"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "300").toInt()
+    ?: "400").toInt()
+
+/** NDK used to cross-compile whisper.cpp; CI installs exactly this version via sdkmanager. */
+val whisperNdkVersion = "27.2.12479018"
+
+/**
+ * Cross-compiles whisper.cpp's `whisper-cli` for arm64-v8a via scripts/build-whisper-android.sh and
+ * stages the variants as lib/arm64-v8a/libwhisper_cli*.so. The script pins the whisper.cpp tag and
+ * commit and skips the build when its outputs are already current.
+ */
+abstract class BuildWhisperCli : DefaultTask() {
+    @get:Inject
+    abstract val execOperations: ExecOperations
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val script: RegularFileProperty
+
+    @get:Input
+    abstract val ndkDir: Property<String>
+
+    @get:Internal
+    abstract val workDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun build() {
+        execOperations.exec {
+            commandLine(
+                "bash",
+                script.get().asFile.absolutePath,
+                ndkDir.get(),
+                outputDir.get().asFile.absolutePath,
+                workDir.get().asFile.absolutePath
+            )
+        }
+    }
+}
+
+val buildWhisperCli = tasks.register<BuildWhisperCli>("buildWhisperCli") {
+    script.set(rootProject.layout.projectDirectory.file("scripts/build-whisper-android.sh"))
+    ndkDir.set(androidComponents.sdkComponents.sdkDirectory.map { it.dir("ndk/$whisperNdkVersion").asFile.absolutePath })
+    workDir.set(layout.buildDirectory.dir("whisper-native/work"))
+    outputDir.set(layout.buildDirectory.dir("whisper-native/jniLibs"))
+}
 val releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 
 val githubRepositoryRaw = (findProperty("GITHUB_REPOSITORY") as String?)
@@ -81,6 +130,18 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            // whisper-cli is an executable, not a loadable library: it must be extracted to disk on
+            // install and must not be touched by symbol stripping.
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/libwhisper_cli*.so"
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(buildWhisperCli, BuildWhisperCli::outputDir)
     }
 }
 
@@ -100,6 +161,8 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    // Real org.json for JVM unit tests; android.jar only ships stubs.
+    testImplementation("org.json:json:20240303")
 
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.04.01"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
