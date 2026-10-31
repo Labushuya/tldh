@@ -50,11 +50,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import dev.bitsbots.tldh.analysis.CriticalFinding
 import dev.bitsbots.tldh.analysis.ReplySuggestions
@@ -82,7 +79,7 @@ import dev.bitsbots.tldh.ui.components.RoundIconButton
 import dev.bitsbots.tldh.ui.components.SegmentedControl
 import dev.bitsbots.tldh.ui.components.TextMark
 import dev.bitsbots.tldh.ui.components.TldhIcons
-import dev.bitsbots.tldh.ui.components.markBackground
+import dev.bitsbots.tldh.ui.components.MarkEmphasis
 import dev.bitsbots.tldh.ui.components.rememberGlassState
 import dev.bitsbots.tldh.ui.components.rememberPressScale
 import dev.bitsbots.tldh.ui.copyToClipboard
@@ -100,6 +97,7 @@ import kotlinx.coroutines.launch
 private data class PlayingSnippet(val key: String, val label: String, val startMs: Long)
 
 private const val MAX_CHECKS_SHOWN = 6
+private const val COLLAPSED_WORDS = 60
 
 @Composable
 fun ResultScreen(
@@ -273,11 +271,7 @@ private fun TldrSection(summary: AudioSummary, markUncertain: Boolean) {
             emptyList()
         }
         val marks = spans.map { TextMark(it.start, it.end, if (it.strong) MarkStyle.Wavy else MarkStyle.Dotted) }
-        val text = buildAnnotatedString {
-            append(summary.tldr)
-            marks.forEach { addStyle(markBackground(it.style), it.start, it.end) }
-        }
-        MarkedText(text = text, marks = marks, style = TldhType.Tldr)
+        MarkedText(text = AnnotatedString(summary.tldr), marks = marks, style = TldhType.Tldr)
         Text("Wörtlich aus dem Transkript, nichts dazuerfunden", style = TldhType.Caption, color = TldhColors.TextMuted)
     }
 }
@@ -352,7 +346,7 @@ private fun CheckRow(check: CriticalFinding, playing: Boolean, onPlay: () -> Uni
             val marks = range?.let { listOf(TextMark(it.first, it.last + 1, style)) }.orEmpty()
             val text = buildAnnotatedString {
                 append(check.sentence)
-                marks.forEach { addStyle(markBackground(style), it.start, it.end) }
+                marks.forEach { addStyle(MarkEmphasis, it.start, it.end) }
             }
             MarkedText(text = text, marks = marks, style = TldhType.Small, color = TldhColors.TextMuted)
         }
@@ -539,10 +533,10 @@ private fun TranscriptSection(
     onWordTap: (Int, TranscriptWord) -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    val collapsible = transcript.length > 240
+    val words = transcription.words
+    val collapsible = if (words.isNotEmpty()) words.size > COLLAPSED_WORDS else transcript.length > 240
     val reduced = LocalReducedMotion.current
     val rotation by animateFloatAsState(if (expanded) 180f else 0f, tween(200, easing = TldhMotion.Enter), label = "chevron")
-    val words = transcription.words
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier
@@ -561,34 +555,23 @@ private fun TranscriptSection(
                 )
             }
         }
-        val maxLines = if (expanded || !collapsible) Int.MAX_VALUE else 4
+        val showAll = expanded || !collapsible
         val sizeModifier = if (reduced) Modifier else Modifier.animateContentSize(tween(TldhMotion.MOVE_MS, easing = TldhMotion.Enter))
-        val marks = mutableListOf<TextMark>()
-        val text: AnnotatedString = if (words.isEmpty() || !markUncertain) {
-            AnnotatedString(transcript)
-        } else {
-            buildAnnotatedString {
-                words.forEachIndexed { index, word ->
-                    if (index > 0) append(' ')
-                    val style = when (word.confidence) {
-                        ConfidenceLevel.SICHER -> null
-                        ConfidenceLevel.UNSICHER -> MarkStyle.Dotted
-                        ConfidenceLevel.SEHR_UNSICHER -> MarkStyle.Wavy
-                    }
-                    if (style == null) {
-                        append(word.text)
-                    } else {
-                        val start = length
-                        withLink(LinkAnnotation.Clickable(tag = "word-$index", styles = TextLinkStyles(style = markBackground(style))) { onWordTap(index, word) }) {
-                            append(word.text)
-                        }
-                        marks += TextMark(start, length, style)
-                    }
-                }
-            }
+        // Built once per transcript/state, not on every recomposition of the result screen.
+        val rendered = remember(transcript, words, markUncertain, showAll) {
+            renderTranscript(transcript, words, markUncertain, showAll)
         }
-        MarkedText(text = text, marks = marks, style = TldhType.Transcript, maxLines = maxLines, modifier = sizeModifier)
-        if (marks.isNotEmpty()) {
+        val marks = rendered.marks
+        MarkedText(
+            text = rendered.text,
+            marks = marks,
+            style = TldhType.Transcript,
+            maxLines = if (showAll || words.isNotEmpty()) Int.MAX_VALUE else 4,
+            modifier = sizeModifier,
+            onMarkTap = { mark -> words.getOrNull(mark.tag)?.let { onWordTap(mark.tag, it) } }
+        )
+        val hasUncertain = remember(words) { words.any { it.confidence != ConfidenceLevel.SICHER } }
+        if (markUncertain && hasUncertain) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -603,11 +586,42 @@ private fun TranscriptSection(
     }
 }
 
+private class RenderedTranscript(val text: AnnotatedString, val marks: List<TextMark>)
+
+/**
+ * The transcript as plain text plus marks: MarkedText draws tint and underline for uncertain words
+ * and handles taps. Collapsed, only the first words are laid out at all.
+ */
+private fun renderTranscript(transcript: String, words: List<TranscriptWord>, markUncertain: Boolean, showAll: Boolean): RenderedTranscript {
+    if (words.isEmpty()) return RenderedTranscript(AnnotatedString(transcript), emptyList())
+    val shown = if (showAll) words else words.take(COLLAPSED_WORDS)
+    val marks = ArrayList<TextMark>()
+    val text = buildAnnotatedString {
+        shown.forEachIndexed { index, word ->
+            if (index > 0) append(' ')
+            val style = if (!markUncertain) {
+                null
+            } else {
+                when (word.confidence) {
+                    ConfidenceLevel.SICHER -> null
+                    ConfidenceLevel.UNSICHER -> MarkStyle.Dotted
+                    ConfidenceLevel.SEHR_UNSICHER -> MarkStyle.Wavy
+                }
+            }
+            val start = length
+            append(word.text)
+            if (style != null) marks += TextMark(start, length, style, tag = index)
+        }
+        if (shown.size < words.size) append(" …")
+    }
+    return RenderedTranscript(text, marks)
+}
+
 @Composable
 private fun LegendItem(word: String, meaning: String, style: MarkStyle) {
     val text = buildAnnotatedString {
         append(word)
-        addStyle(markBackground(style), 0, word.length)
+        addStyle(MarkEmphasis, 0, word.length)
         append(" $meaning")
     }
     MarkedText(text = text, marks = listOf(TextMark(0, word.length, style)), style = TldhType.Caption, color = TldhColors.TextMuted)

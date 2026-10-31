@@ -8,10 +8,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.7.2"
+    ?: "0.7.3"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "702").toInt()
+    ?: "703").toInt()
 
 /** NDK used to cross-compile whisper.cpp; CI installs exactly this version via sdkmanager. */
 val whisperNdkVersion = "27.2.12479018"
@@ -166,6 +166,7 @@ dependencies {
 
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.04.01"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
