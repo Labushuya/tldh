@@ -3,13 +3,15 @@
 # off, force Doze, come back, rotate, then wait for the result and walk through it. Fails on any
 # crash, ANR, app death or missing result.
 set -u
+# adb shell must never wait on the runner's stdin.
+exec < /dev/null
 APK="$1"
 PKG=dev.bitsbots.tldh.debug
 OUT=e2e-out
 mkdir -p "$OUT"
 
 adb wait-for-device
-echo "Android $(adb shell getprop ro.build.version.release), CPU flags: $(adb shell grep -m1 -o -E 'avx2|fma|f16c' /proc/cpuinfo | sort -u | tr '\n' ' ')"
+echo "Android $(adb shell getprop ro.build.version.release), CPU flags: $(adb shell "grep -o -E 'avx2|fma|f16c' /proc/cpuinfo | sort -u" < /dev/null | tr '\n' ' ')"
 adb install -r "$APK" >/dev/null
 adb shell dumpsys package "$PKG" | grep -m1 primaryCpuAbi
 adb push e2e-audio.ogg /data/local/tmp/e2e-audio.ogg >/dev/null
