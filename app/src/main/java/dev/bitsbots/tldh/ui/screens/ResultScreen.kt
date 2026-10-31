@@ -50,11 +50,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import dev.bitsbots.tldh.analysis.CriticalFinding
 import dev.bitsbots.tldh.analysis.ReplySuggestions
@@ -100,6 +97,7 @@ import kotlinx.coroutines.launch
 private data class PlayingSnippet(val key: String, val label: String, val startMs: Long)
 
 private const val MAX_CHECKS_SHOWN = 6
+private const val COLLAPSED_WORDS = 60
 
 @Composable
 fun ResultScreen(
@@ -539,10 +537,10 @@ private fun TranscriptSection(
     onWordTap: (Int, TranscriptWord) -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    val collapsible = transcript.length > 240
+    val words = transcription.words
+    val collapsible = if (words.isNotEmpty()) words.size > COLLAPSED_WORDS else transcript.length > 240
     val reduced = LocalReducedMotion.current
     val rotation by animateFloatAsState(if (expanded) 180f else 0f, tween(200, easing = TldhMotion.Enter), label = "chevron")
-    val words = transcription.words
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier
@@ -561,34 +559,23 @@ private fun TranscriptSection(
                 )
             }
         }
-        val maxLines = if (expanded || !collapsible) Int.MAX_VALUE else 4
+        val showAll = expanded || !collapsible
         val sizeModifier = if (reduced) Modifier else Modifier.animateContentSize(tween(TldhMotion.MOVE_MS, easing = TldhMotion.Enter))
-        val marks = mutableListOf<TextMark>()
-        val text: AnnotatedString = if (words.isEmpty() || !markUncertain) {
-            AnnotatedString(transcript)
-        } else {
-            buildAnnotatedString {
-                words.forEachIndexed { index, word ->
-                    if (index > 0) append(' ')
-                    val style = when (word.confidence) {
-                        ConfidenceLevel.SICHER -> null
-                        ConfidenceLevel.UNSICHER -> MarkStyle.Dotted
-                        ConfidenceLevel.SEHR_UNSICHER -> MarkStyle.Wavy
-                    }
-                    if (style == null) {
-                        append(word.text)
-                    } else {
-                        val start = length
-                        withLink(LinkAnnotation.Clickable(tag = "word-$index", styles = TextLinkStyles(style = markBackground(style))) { onWordTap(index, word) }) {
-                            append(word.text)
-                        }
-                        marks += TextMark(start, length, style)
-                    }
-                }
-            }
+        // Built once per transcript/state, not on every recomposition of the result screen.
+        val rendered = remember(transcript, words, markUncertain, showAll) {
+            renderTranscript(transcript, words, markUncertain, showAll)
         }
-        MarkedText(text = text, marks = marks, style = TldhType.Transcript, maxLines = maxLines, modifier = sizeModifier)
-        if (marks.isNotEmpty()) {
+        val marks = rendered.marks
+        MarkedText(
+            text = rendered.text,
+            marks = marks,
+            style = TldhType.Transcript,
+            maxLines = if (showAll || words.isNotEmpty()) Int.MAX_VALUE else 4,
+            modifier = sizeModifier,
+            onMarkTap = { mark -> words.getOrNull(mark.tag)?.let { onWordTap(mark.tag, it) } }
+        )
+        val hasUncertain = remember(words) { words.any { it.confidence != ConfidenceLevel.SICHER } }
+        if (markUncertain && hasUncertain) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -601,6 +588,41 @@ private fun TranscriptSection(
             Text("Alle Wörter wurden sicher erkannt.", style = TldhType.Caption, color = TldhColors.TextMuted)
         }
     }
+}
+
+private class RenderedTranscript(val text: AnnotatedString, val marks: List<TextMark>)
+
+/**
+ * The transcript as one annotated string: uncertain words get a tinted background (cheap span
+ * style) plus a mark for the underline and tap handling. Collapsed, only the first words are laid
+ * out at all.
+ */
+private fun renderTranscript(transcript: String, words: List<TranscriptWord>, markUncertain: Boolean, showAll: Boolean): RenderedTranscript {
+    if (words.isEmpty()) return RenderedTranscript(AnnotatedString(transcript), emptyList())
+    val shown = if (showAll) words else words.take(COLLAPSED_WORDS)
+    val marks = ArrayList<TextMark>()
+    val text = buildAnnotatedString {
+        shown.forEachIndexed { index, word ->
+            if (index > 0) append(' ')
+            val style = if (!markUncertain) {
+                null
+            } else {
+                when (word.confidence) {
+                    ConfidenceLevel.SICHER -> null
+                    ConfidenceLevel.UNSICHER -> MarkStyle.Dotted
+                    ConfidenceLevel.SEHR_UNSICHER -> MarkStyle.Wavy
+                }
+            }
+            val start = length
+            append(word.text)
+            if (style != null) {
+                addStyle(markBackground(style), start, length)
+                marks += TextMark(start, length, style, tag = index)
+            }
+        }
+        if (shown.size < words.size) append(" …")
+    }
+    return RenderedTranscript(text, marks)
 }
 
 @Composable

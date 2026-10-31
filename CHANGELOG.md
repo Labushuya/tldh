@@ -7,6 +7,15 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.3] - 2026-10-31
+
+### Fixed
+- The app froze ("App reagiert nicht – Warten oder Schließen") when the result of a long voice note appeared. Every uncertain word in the transcript was a separate tappable link; with hundreds of them the text was laid out again and again, which took over 90 seconds for a 5-minute note in a stress test. Uncertain words are now tinted and underlined in one text with a single tap handler, underline positions are computed once per layout, and the collapsed transcript only lays out its first words.
+
+### Added
+- Instrumented stress test for the result screen (900 words, many uncertain) and an end-to-end emulator test that transcribes a real 3-minute German voice note while the app goes to the background, the display turns off and the phone rotates.
+
+
 ## [0.7.2] - 2026-10-31
 
 ### Fixed

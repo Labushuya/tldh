@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +36,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -177,7 +180,8 @@ fun DrawScope.drawMarkGlyph(unit: Float, originOffset: Float, color: Color) {
 /** Second cue besides color for uncertain words: dotted = unsure, wavy = very unsure. */
 enum class MarkStyle { Dotted, Wavy }
 
-data class TextMark(val start: Int, val end: Int, val style: MarkStyle)
+/** A marked range; [tag] lets a tap handler find what was marked (e.g. the word index). */
+data class TextMark(val start: Int, val end: Int, val style: MarkStyle, val tag: Int = -1)
 
 fun markColor(style: MarkStyle): Color = when (style) {
     MarkStyle.Dotted -> TldhColors.Unsure
@@ -189,7 +193,14 @@ fun markBackground(style: MarkStyle): SpanStyle = SpanStyle(
     background = markColor(style).copy(alpha = if (style == MarkStyle.Wavy) 0.18f else 0.15f)
 )
 
-/** Text whose [marks] get a dotted or wavy underline drawn under the baseline. */
+/**
+ * Text whose [marks] get a dotted or wavy underline drawn under the baseline.
+ *
+ * Deliberately no LinkAnnotation per mark: with hundreds of marked words (a long voice note) the
+ * link machinery re-laid out the whole text per link and froze the screen for over a minute. Taps
+ * go through one gesture handler that maps the touch position to a character offset instead, and
+ * the underline geometry is computed once per text layout, not on every frame.
+ */
 @Composable
 fun MarkedText(
     text: AnnotatedString,
@@ -197,9 +208,23 @@ fun MarkedText(
     style: TextStyle,
     modifier: Modifier = Modifier,
     color: Color = TldhColors.Text,
-    maxLines: Int = Int.MAX_VALUE
+    maxLines: Int = Int.MAX_VALUE,
+    onMarkTap: ((TextMark) -> Unit)? = null
 ) {
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val geometry = remember { MarkGeometryCache() }
+    val currentOnTap by rememberUpdatedState(onMarkTap)
+    val tapModifier = if (onMarkTap != null && marks.isNotEmpty()) {
+        Modifier.pointerInput(marks) {
+            detectTapGestures { position ->
+                val result = layout ?: return@detectTapGestures
+                val offset = result.getOffsetForPosition(position)
+                marks.firstOrNull { offset >= it.start && offset <= it.end }?.let { currentOnTap?.invoke(it) }
+            }
+        }
+    } else {
+        Modifier
+    }
     Text(
         text = text,
         style = style,
@@ -207,29 +232,54 @@ fun MarkedText(
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { layout = it },
-        modifier = modifier.drawBehind {
-            val result = layout ?: return@drawBehind
-            marks.forEach { mark -> drawMark(result, mark) }
-        }
+        modifier = modifier
+            .then(tapModifier)
+            .drawBehind {
+                val result = layout ?: return@drawBehind
+                geometry.get(result, marks).forEach { drawMark(it) }
+            }
     )
 }
 
-private fun DrawScope.drawMark(layout: TextLayoutResult, mark: TextMark) {
-    if (layout.lineCount == 0 || mark.end <= mark.start) return
-    val textLength = layout.layoutInput.text.length
-    if (mark.end > textLength) return
-    val lastVisible = layout.getLineEnd(layout.lineCount - 1, visibleEnd = true)
-    if (mark.start >= lastVisible) return
-    val line = layout.getLineForOffset(mark.start)
-    val endLine = layout.getLineForOffset(mark.end - 1)
-    val left = layout.getHorizontalPosition(mark.start, usePrimaryDirection = true)
-    val right = if (endLine == line) layout.getHorizontalPosition(mark.end, usePrimaryDirection = true) else layout.getLineRight(line)
-    if (right <= left) return
-    // Baseline offset is the same on every line because the text uses a single style.
-    val baseline = layout.getLineTop(line) + (layout.firstBaseline - layout.getLineTop(0))
-    val y = baseline + 3.dp.toPx()
-    val color = markColor(mark.style)
-    when (mark.style) {
+private class MarkSegment(val left: Float, val right: Float, val baseline: Float, val style: MarkStyle)
+
+/** Recomputes underline positions only when the layout or the marks change. */
+private class MarkGeometryCache {
+    private var layout: TextLayoutResult? = null
+    private var marks: List<TextMark>? = null
+    private var segments: List<MarkSegment> = emptyList()
+
+    fun get(layout: TextLayoutResult, marks: List<TextMark>): List<MarkSegment> {
+        if (layout !== this.layout || marks !== this.marks) {
+            this.layout = layout
+            this.marks = marks
+            segments = marks.mapNotNull { segmentOf(layout, it) }
+        }
+        return segments
+    }
+
+    private fun segmentOf(layout: TextLayoutResult, mark: TextMark): MarkSegment? {
+        if (layout.lineCount == 0 || mark.end <= mark.start) return null
+        if (mark.end > layout.layoutInput.text.length) return null
+        val lastVisible = layout.getLineEnd(layout.lineCount - 1, visibleEnd = true)
+        if (mark.start >= lastVisible) return null
+        val line = layout.getLineForOffset(mark.start)
+        val endLine = layout.getLineForOffset(mark.end - 1)
+        val left = layout.getHorizontalPosition(mark.start, usePrimaryDirection = true)
+        val right = if (endLine == line) layout.getHorizontalPosition(mark.end, usePrimaryDirection = true) else layout.getLineRight(line)
+        if (!(right > left) || right - left > layout.size.width + 1f) return null
+        // Baseline offset is the same on every line because the text uses a single style.
+        val baseline = layout.getLineTop(line) + (layout.firstBaseline - layout.getLineTop(0))
+        return MarkSegment(left, right, baseline, mark.style)
+    }
+}
+
+private fun DrawScope.drawMark(segment: MarkSegment) {
+    val left = segment.left
+    val right = segment.right
+    val y = segment.baseline + 3.dp.toPx()
+    val color = markColor(segment.style)
+    when (segment.style) {
         MarkStyle.Dotted -> {
             val radius = 1.1.dp.toPx()
             val step = 4.dp.toPx()
