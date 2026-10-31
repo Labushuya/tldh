@@ -80,3 +80,93 @@ jobs:
           name: smoke-api-${{ matrix.api }}
           path: smoke-out/
           if-no-files-found: ignore
+
+  e2e:
+    name: Full transcription e2e (API ${{ matrix.api }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [ 34, 35 ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install SDK packages and NDK
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "emulator"
+
+      - name: Cache whisper.cpp Android build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/build/whisper-native/jniLibs
+            app/build/whisper-native/work/stamp
+          key: whisper-native-${{ hashFiles('scripts/build-whisper-android.sh') }}
+
+      # Test-only: an x86_64 whisper-cli in the debug source set, so the x86_64 emulator runs the
+      # real pipeline at native speed. Never committed, never part of a release build.
+      - name: Build whisper-cli for the x86_64 emulator
+        run: |
+          set -euo pipefail
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          git clone --quiet --depth 1 --branch v1.9.5 https://github.com/ggml-org/whisper.cpp /tmp/whisper-x86
+          cmake -S /tmp/whisper-x86 -B /tmp/whisper-x86/build \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=x86_64 \
+            -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF \
+            -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON \
+            -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF -DWHISPER_CURL=OFF >/dev/null
+          cmake --build /tmp/whisper-x86/build --target whisper-cli -j "$(nproc)" >/dev/null
+          install -D -m 0755 /tmp/whisper-x86/build/bin/whisper-cli app/src/debug/jniLibs/x86_64/libwhisper_cli.so
+          "$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-all app/src/debug/jniLibs/x86_64/libwhisper_cli.so
+          ls -la app/src/debug/jniLibs/x86_64/
+
+      - name: Build debug APK
+        run: bash scripts/gradle.sh assembleDebug
+
+      - name: German speech sample and model
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg espeak-ng >/dev/null
+          espeak-ng -v de -s 150 -w speech.wav -f .github/smoke/voice-note-de.txt
+          ffmpeg -hide_banner -loglevel error -i speech.wav -ac 1 -ar 16000 -c:a libopus -b:a 24k e2e-audio.ogg
+          ffprobe -v error -show_entries format=duration -of csv=p=0 e2e-audio.ogg
+          curl -fsSL -o ggml-base-q5_1.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base-q5_1.bin"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run end-to-end transcription on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/smoke/e2e-transcribe.sh "$(ls app/build/outputs/apk/debug/*.apk | head -1)"
+
+      - name: Upload logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-api-${{ matrix.api }}
+          path: e2e-out/
+          if-no-files-found: ignore
