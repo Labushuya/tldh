@@ -51,6 +51,7 @@ jobs:
       - name: Test audio and model
         run: |
           set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null
           ffmpeg -hide_banner -loglevel error -f lavfi -i "sine=frequency=440:duration=6" -c:a libopus -b:a 24k smoke-audio.ogg
           curl -fsSL -o ggml-base-q5_1.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base-q5_1.bin"
           ls -la smoke-audio.ogg ggml-base-q5_1.bin app/build/outputs/apk/debug/
