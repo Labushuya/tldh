@@ -39,14 +39,12 @@ import dev.bitsbots.tldh.ui.theme.TldhGlass
  *
  * The content to blur is marked with [glassSource]; it records itself into a graphics layer on
  * every draw. A [GlassPane] placed above it (as a sibling, never inside the source) draws that
- * layer again, blurred and clipped to its own shape, then lays a tint and a lit hairline on top.
+ * layer again into its own blurred layer, clipped to its shape, then lays a tint and a lit
+ * hairline on top.
  * Real-time blur needs Android 12 (RenderEffect); older versions get an almost opaque tint.
  */
 @Stable
-class GlassState internal constructor(
-    internal val content: GraphicsLayer,
-    internal val blurred: GraphicsLayer
-) {
+class GlassState internal constructor(internal val content: GraphicsLayer) {
     internal var origin by mutableStateOf(Offset.Zero)
     internal var size by mutableStateOf(IntSize.Zero)
 }
@@ -54,8 +52,7 @@ class GlassState internal constructor(
 @Composable
 fun rememberGlassState(): GlassState {
     val content = rememberGraphicsLayer()
-    val blurred = rememberGraphicsLayer()
-    return remember(content, blurred) { GlassState(content, blurred) }
+    return remember(content) { GlassState(content) }
 }
 
 val GlassBlurSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -91,6 +88,8 @@ fun GlassPane(
     content: @Composable BoxScope.() -> Unit
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
+    // Each pane owns its blurred copy, so panes fading at different rates don't share one alpha.
+    val blurred = rememberGraphicsLayer()
     Box(
         modifier = modifier
             .onGloballyPositioned { origin = it.positionInRoot() }
@@ -103,12 +102,12 @@ fun GlassPane(
                 val blur = source != null && GlassBlurSupported && source.size.width > 0 && source.size.height > 0
                 if (blur && source != null) {
                     val radius = blurRadius.toPx()
-                    source.blurred.renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
-                    source.blurred.alpha = amount
-                    source.blurred.record(size = source.size) { drawLayer(source.content) }
+                    blurred.renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
+                    blurred.alpha = amount
+                    blurred.record(size = source.size) { drawLayer(source.content) }
                     clipPath(outline) {
                         translate(left = source.origin.x - origin.x, top = source.origin.y - origin.y) {
-                            drawLayer(source.blurred)
+                            drawLayer(blurred)
                         }
                     }
                 }
