@@ -10,3 +10,10 @@
 
 - What: `ggml-base-q5_1.bin` and `ggml-small-q5_1.bin`, OpenAI Whisper weights converted and quantized for whisper.cpp, downloaded on demand from https://huggingface.co/ggerganov/whisper.cpp at revision `5359861c739e955e79d9a303bcbc70fb988958b1` and verified by SHA-256.
 - License: MIT (OpenAI Whisper model weights), see https://github.com/openai/whisper/blob/main/LICENSE.
+
+## Bricolage Grotesque (bundled in the APK and in docs/brand)
+
+- What: static Medium and Bold instances (optical size 36) as `app/src/main/res/font/bricolage_grotesque_*.ttf`; 96 pt Bold and 48 pt Medium instances in `docs/brand/fonts/` for the README banner. Instanced from the variable font with fontTools.
+- Source: https://github.com/google/fonts/tree/main/ofl/bricolagegrotesque (upstream https://github.com/ateliertriay/bricolage), Copyright 2022 The Bricolage Grotesque Project Authors.
+- License: SIL Open Font License 1.1, full text in [licenses/BricolageGrotesque-OFL.txt](licenses/BricolageGrotesque-OFL.txt).
+

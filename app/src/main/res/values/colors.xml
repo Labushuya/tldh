@@ -1,3 +1,5 @@
 <resources>
-    <color name="icon_background">#08030A</color>
+    <color name="tldh_background">#08030A</color>
+    <color name="tldh_accent">#A50B5E</color>
+    <color name="icon_background">#A50B5E</color>
 </resources>

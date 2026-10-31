@@ -7,6 +7,27 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.0] - 2026-10-31
+
+### Added
+- Complete redesign of every screen (start, setup, processing, result, settings, error) following the new [DESIGN.md](DESIGN.md): calmer layout, Bricolage Grotesque for headlines, 48 dp touch targets, sentence-case German copy.
+- Subtle macOS-like glass: top bars and bottom docks turn to frosted glass while content scrolls underneath (backdrop blur on Android 12+), glass toast and snippet player, lit hairline rims on surfaces and the main button.
+- "Audiodatei öffnen": pick audio from storage. Besides Ogg/Opus voice notes, M4A/AAC, MP3, WAV, FLAC, AMR and WebM are now accepted.
+- Processing screen with the real waveform of the voice note, step list, live recognized text and a remaining-time estimate.
+- Uncertain words get a second cue besides color: dotted underline (unsure) and wavy underline (very unsure), also in the summary and the check rows, with a legend.
+- Snippet player pane with stop button; play buttons show an equalizer while playing.
+- Settings screen: model choice with recommendation and download progress, delete models (with confirmation), default reply tone, toggle for word marking, updates, privacy statements, licenses.
+- New app icon (three bars ending in a dot) as adaptive vector icon with Android 13 themed-icon layer; dark window background and Android 12 splash.
+- New README, banner and brand assets.
+
+### Fixed
+- Closing a result or tapping "Session löschen" now deletes the session and returns to the start screen with a confirmation; previously the transcript and summary stayed visible.
+- No white flash on app start; system bar icons stay light on the dark UI.
+
+### Changed
+- The screen stays on while a voice note is processed or a model/update downloads.
+
+
 ## [0.6.0] - 2026-10-31
 
 ### Added

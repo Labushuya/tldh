@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- tl;dh mark: three bars getting shorter, ending in a dot. 108 dp grid, glyph inside the 66 dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FDF7FB"
+        android:pathData="M32,41.5a3.5,3.5 0,0 1,7 0v25a3.5,3.5 0,0 1,-7 0z" />
+    <path
+        android:fillColor="#FDF7FB"
+        android:pathData="M44.2,46.7a3.5,3.5 0,0 1,7 0v14.6a3.5,3.5 0,0 1,-7 0z" />
+    <path
+        android:fillColor="#FDF7FB"
+        android:pathData="M56.4,52.1a3.5,3.5 0,0 1,7 0v3.8a3.5,3.5 0,0 1,-7 0z" />
+    <path
+        android:fillColor="#FDF7FB"
+        android:pathData="M68,54a4,4 0,1 0,8 0a4,4 0,1 0,-8 0z" />
+</vector>

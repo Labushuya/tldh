@@ -1,219 +1,90 @@
 <p align="center">
-  <img src="docs/brand/banner.png" alt="tl;dh — too long; didn't hear" width="100%">
+  <img src="docs/brand/banner.png" alt="tl;dh – Long story, short. Voice notes, read instead of heard." width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Labushuya/tldh/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Labushuya/tldh/ci.yml?branch=main&label=CI&color=A50B5E" alt="CI"></a>
+  <a href="https://github.com/Labushuya/tldh/releases/latest"><img src="https://img.shields.io/github/v/release/Labushuya/tldh?label=Release&color=A50B5E" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Android-9%2B%20·%20arm64-160815" alt="Android 9+, arm64">
+  <img src="https://img.shields.io/badge/Privacy-100%25%20offline-34D399" alt="Privacy: offline">
+  <img src="https://img.shields.io/badge/License-MIT-FDF7FB" alt="MIT">
 </p>
 
 # tl;dh
 
-**too long; didn't hear**
+**too long; didn't hear.** Share a WhatsApp voice note to tl;dh and read what it says in seconds: a verbatim summary, the questions and dates in it, ready-made replies. Everything runs on your phone. Nothing is uploaded.
 
-Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
+> **Status:** `v0.7.0` · redesigned app. New look with frosted-glass details, open audio files directly, live text while transcribing, and a clean start screen after every session.
 
-> **Status:** `v0.6.0` reply suggestions. Voice notes are transcribed on the device with `whisper.cpp`; tl;dh shows a verbatim TL;DR, questions, dates/numbers and requests, flags uncertain meaning-critical words with one-tap replay, and offers copy-ready replies in three tones plus a note mode. Next is an LLM benchmark in the STT bench for the optional on-device AI pack.
+## How it works
 
-![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
-![Android](https://img.shields.io/badge/Android-local--first-A50B5E)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF)
-![Privacy](https://img.shields.io/badge/Privacy-no%20cloud-34D399)
-![License](https://img.shields.io/badge/License-MIT-white)
+1. In WhatsApp, long-press a voice note → **Share** → **tl;dh**, or tap **Audiodatei öffnen** in the app.
+2. tl;dh transcribes it on the device with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). You watch the waveform fill and the first sentences appear.
+3. You get the result:
+   - **Kurz gesagt** – the most informative sentences, word for word from the transcript.
+   - **Stellen prüfen** – uncertain words that can change the meaning (negations, times, numbers, conditions, must/can), each with a play button for that exact moment.
+   - **Kernpunkte** – questions to you, dates and amounts, requests.
+   - **Antworten** – three replies in your tone (kurz, freundlich, förmlich), one tap to copy. Or copy the whole thing as a note.
+   - **Transkript** – uncertain words are tinted *and* underlined (dotted = unsure, wavy = very unsure), tap to hear them.
+4. Close the result and the session is gone: audio, transcript and summary are deleted.
 
-## What it solves
+Nothing is generated or invented: summaries and replies are built by rules from what was actually said.
 
-WhatsApp voice notes are often long, unstructured, and time-expensive. `tl;dh` lets you share an audio file into the app and receive:
+## Privacy
 
-- a local transcript where uncertain words are marked (tap to hear that moment)
-- TL;DR and key points (questions to you, dates and numbers, tasks)
-- warnings for meaning-critical words that were recognized with low confidence (negations, times, numbers, names)
-- reply suggestions and a note mode, copied straight to the clipboard
+- Speech recognition and summary run **only on the phone**. No cloud, no account, no analytics, no ads.
+- Internet is used for exactly two things, both only when you tap: downloading a recognition model once (60 or 190 MB, pinned revision, SHA-256 verified) and checking for app updates.
+- Audio and transcript live in a per-session folder that is wiped when you close the result, when you share the next voice note, and on the next app start (in case Android killed the app).
+- Copied text is marked as sensitive, so Android 13+ hides it from the clipboard preview.
 
-The base pipeline is rule-based and runs on every arm64 phone. An optional on-device AI pack for capable phones is planned after a separate LLM benchmark; it will never be required.
+Details: [docs/privacy.md](docs/privacy.md).
 
-## MVP flow
+## Install
 
-```text
-WhatsApp audio → Android Sharesheet → tl;dh → local inspect → duration gate → whisper.cpp transcription → highlighted transcript → copy result → session wipe
-```
+Download `tldh-<version>.apk` from the [latest release](https://github.com/Labushuya/tldh/releases/latest) and open it. Later updates come from inside the app (**Einstellungen → Updates → Prüfen**); every APK is checked against its SHA-256 before Android's installer opens. No background polling, no silent installs.
 
-## Supported sources
+Requirements: Android 9 or newer on a 64-bit ARM phone (arm64-v8a). The app recommends a model for your phone:
 
-| Source | Status | Notes |
+| Model | Size | For |
 |---|---:|---|
-| WhatsApp `.opus` voice notes | Primary | Main target |
-| Telegram `.ogg` audio | Secondary | Supported if the same Ogg/Opus path works cleanly |
-| Instagram | Out of scope | No useful external audio share flow |
-| Facebook Messenger | Out of scope | No useful external audio share flow |
+| Ausgewogen · Whisper base (q5_1) | 60 MB | every arm64 phone, fast |
+| Genau · Whisper small (q5_1) | 190 MB | phones with dotprod/fp16 CPU and ≥ 6 GB RAM, clearly fewer mishearings |
 
-## Privacy model
+Supported audio: WhatsApp and Telegram voice notes (Ogg/Opus) and files picked from storage (M4A/AAC, MP3, WAV, FLAC, AMR, WebM), up to 50 MB and 15 minutes.
 
-Core behavior:
+## Design
 
-- no cloud speech-to-text
-- no cloud summarization
-- no analytics
-- no telemetry
-- no account
-- no database in the MVP
-- no persistent audio/transcript/result storage
-- session files wiped on start and explicit close
+The app follows one dark, calm visual system: depth from surface steps instead of glow, the magenta accent only for the main action and state, Bricolage Grotesque for headlines, frosted glass only on chrome that floats over content. The full spec lives in [DESIGN.md](DESIGN.md); logo and banner sources are in [docs/brand](docs/brand/README.md).
 
-`tl;dh` is a single APK. The app is fully usable offline. Internet is only used when the user taps the in-app update check or downloads a Whisper model (once, 60 or 190 MB, from a pinned Hugging Face revision, SHA-256 verified).
-
-Important: Android does not guarantee every lifecycle callback after a hard process kill. `tl;dh` therefore wipes orphaned session files at next startup. Clipboard content is controlled by Android after you copy text.
-
-## Single APK release model
-
-There are no split `offline`/`updater` release variants anymore.
-
-The release asset is exactly one APK:
-
-```text
-tldh-<version>.apk
-```
-
-Example:
-
-```text
-tldh-0.3.0.apk
-```
-
-This one app includes:
-
-- offline-capable Share Target and audio ingest
-- duration guardrails for long voice notes
-- local `whisper.cpp` transcription with word-level confidence and snippet playback
-- manual stable in-app update check
-- APK download with SHA256 verification
-- Android installer handoff after explicit user confirmation
-
-No background update polling. No silent installs. No notification-based stale updater UI.
-
-## Technical baseline
-
-- Kotlin `2.4.0`
-- Android Gradle Plugin `9.2.1`
-- Jetpack Compose BOM `2026.04.01`
-- `compileSdk = 36`
-- `targetSdk = 36`
-- `minSdk = 28`
-- primary ABI: `arm64-v8a`
-- `whisper.cpp` `v1.9.5` (`whisper-cli`, built from source in CI, two CPU variants)
-- Whisper models: `base` and `small`, q5_1 quantized, downloaded on demand
-- package: `dev.bitsbots.tldh`
-
-## Local build
-
-This repository includes `scripts/gradle.sh`, which uses an existing Gradle installation or bootstraps Gradle locally.
+## Build
 
 ```bash
 bash scripts/gradle.sh lintDebug testDebugUnitTest assembleDebug
 ```
 
-Build the signed release APK in CI with:
+`scripts/gradle.sh` uses an installed Gradle or bootstraps one. The build cross-compiles `whisper-cli` (whisper.cpp `v1.9.5`, pinned commit) for arm64-v8a with NDK `27.2.12479018` in two CPU variants; see [scripts/build-whisper-android.sh](scripts/build-whisper-android.sh).
 
-```bash
-bash scripts/gradle.sh assembleRelease
-```
+Signed releases are built by CI on every version bump merged to `main` and need `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`.
 
-For real signed releases, configure:
+Baseline: Kotlin 2.4 · AGP 9.2.1 · Compose BOM 2026.04.01 · compileSdk/targetSdk 36 · minSdk 28 · package `dev.bitsbots.tldh`.
 
-```text
-ANDROID_KEYSTORE_FILE
-ANDROID_KEYSTORE_PASSWORD
-ANDROID_KEY_ALIAS
-ANDROID_KEY_PASSWORD
-```
-
-## Release discipline
-
-- SemVer tags: `v0.3.0`, `v0.3.1`, ...
-- `versionName` follows SemVer
-- `versionCode` is monotonically increasing
-- release APKs are signed with the same key for update compatibility
-- GitHub Releases include one APK, SHA256 sums, and `release-manifest.json`
-
-## Stable updater rule
-
-The in-app updater does **not** blindly install `latest`.
-
-A release is eligible only if:
-
-- not draft
-- not prerelease
-- valid SemVer tag
-- exact APK asset `tldh-<version>.apk` exists
-- SHA256 exists and verifies
-- not yanked
-- stable release manifest validates
+More: [architecture](docs/architecture.md) · [release process](docs/release.md) · [updater rules](docs/updater.md) · [testing](docs/testing.md) · [changelog](CHANGELOG.md).
 
 ## Roadmap
 
 | Version | Goal |
 |---:|---|
-| `0.1.0` | Share Target MVP + fake summarizer |
-| `0.2.0` | Audio ingest + Ogg/Opus detection hardening |
-| `0.2.1` | Manual stable updater MVP |
-| `0.2.2` | Single APK release model with in-app updater |
-| `0.2.4` | Duration probing and long-audio guardrails |
-| `0.2.5` | Brand refresh, app icon/banner update, bottom breathing room and guarded update downloads |
-| `0.3.0` | Local transcription spike with Android on-device file recognition and PCM preparation |
-| `0.4.0` | `whisper.cpp` transcription, model download per device class, word confidence + snippet playback, session wipe per share |
-| `0.5.0` | Meaning-critical word warnings, rule-based TL;DR and key points (questions, dates/numbers, tasks) |
-| `0.6.0` | Reply templates, note mode, clipboard |
-| `0.7.x` | Optional on-device AI pack for capable phones, after an LLM benchmark in the STT bench |
-| later | Tags + categories |
-| `0.9.0` | Testing, benchmarking, RC |
+| `0.4.0` | whisper.cpp transcription, word confidence, snippet playback |
+| `0.5.0` | Meaning checks, rule-based TL;DR and key points |
+| `0.6.0` | Reply suggestions in three tones, note mode |
+| **`0.7.0`** | **Redesign: new screens, glass details, file picker, live text, new icon** |
+| `0.8.x` | Optional on-device AI pack for capable phones, after an LLM benchmark in the STT bench (never required) |
+| later | Tags and categories |
+| `0.9.0` | Testing, benchmarking, release candidate |
 | `1.0.0` | Public stable release |
 
-## Brand
-
-`tl;dh` uses a dark, local-first visual system with deep magenta `#a50b5e` gradients, compressed voice-wave motifs and extra mobile bottom breathing room. Brand assets live in [`docs/brand`](docs/brand/README.md).
+The separate [STT bench](stt-bench/README.md) app compares speech-to-text engines on real voice notes.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
-
-
-## v0.2.4 UX guardrail fix
-
-Duration warnings are now shown directly below the TL;DR and included in the copied Share protocol output, so longer WhatsApp voice notes visibly carry their local-processing warning.
-
-
-## v0.2.5 Brand + updater hardening
-
-- README banner and app logo are updated to the new `Long story, short.` brand direction.
-- Primary accent shifts toward `#a50b5e`.
-- App UI receives more bottom breathing room for large scrollable result cards.
-- Manual APK update downloads now keep the device awake during the foreground download and show clearer interruption guidance instead of collapsing into a generic GitHub/network error.
-- The v0.3.0 transcription spike is planned from the validated 4:45 min WhatsApp OGG_OPUS Share protocol in `docs/planning/v0.3.0-whisper-spike.md`.
-
-
-## v0.3.0 Local transcription spike
-
-- Result cards are shorter: TL;DR, optional transcript, guardrails, short points, tags.
-- Technical ingest details moved behind a details toggle to reduce text walls.
-- The TL;DR card has higher contrast against the dark `#a50b5e` UI direction.
-- Shared audio is decoded through Android's media stack and converted to 16 kHz mono PCM for the local recognizer path.
-- The spike uses Android's on-device file recognition when the device supports it. If not, the app clearly reports that fallback state and keeps the previous validated ingest/guardrail behavior.
-- Native `whisper.cpp` remains the next hardening step after proving the local file-transcription path on the Magic V2.
-
-
-## v0.4.0 Local Whisper transcription
-
-- The Android on-device recognizer spike is replaced by `whisper.cpp` (`v1.9.5`), cross-compiled for arm64-v8a in CI and bundled as an executable in two CPU variants (baseline armv8-a and armv8.2-a with dotprod/fp16, picked at runtime).
-- Whisper models are downloaded once on demand: `base` (≈ 60 MB, every device) or `small` (≈ 190 MB, recommended for phones with a fast CPU and ≥ 6 GB RAM).
-- Every word carries whisper's token probability. Uncertain words are highlighted (yellow / red); tapping one replays the moment around it.
-- The TL;DR card shows the first sentences as a preview until the rule-based summary of `v0.5.0`.
-- Each new share wipes the previous session; copied text is marked as sensitive for the Android clipboard preview.
-
-
-## v0.5.0 Rule-based summary and meaning checks
-
-- A "Prüfen" card lists uncertain words that can change what was said: negations, times and dates, numbers and amounts, conditions and modal verbs. Each entry shows its sentence and replays that moment with one tap.
-- The TL;DR picks the most informative sentences (questions, requests, dates, numbers, repeated keywords) and skips greetings. Key points are grouped into questions to you, dates & numbers, and tasks & requests. Everything is verbatim from the transcript; nothing is generated.
-- The bundled whisper-cli binaries are stripped, so the APK gets noticeably smaller.
-
-
-## v0.6.0 Reply suggestions and note mode
-
-- tl;dh recognizes what a voice note asks for (appointment, request, yes/no or open question, cancellation, thanks, info) and offers three replies: agree, decline or suggest an alternative, defer.
-- Tones: kurz, freundlich, förmlich (Sie). Appointment replies reuse the time phrase from the transcript, e.g. "Passt, am Samstag um 17 Uhr bin ich dabei."
-- Tap to copy, then paste into WhatsApp. "Als Notiz kopieren" turns the voice note into a short note with date and duration.
+MIT, see [LICENSE](LICENSE). Third-party components (whisper.cpp, Whisper models, Bricolage Grotesque) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

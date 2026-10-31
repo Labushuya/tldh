@@ -107,3 +107,11 @@ object WordAssembler {
         )
     }
 }
+
+/** Parses whisper-cli's live stdout lines: `[00:00:00.000 --> 00:00:04.200]  text`. */
+object WhisperStdout {
+    private val segmentLine = Regex("""^\[\d{2}:\d{2}:\d{2}[.,]\d{3} --> \d{2}:\d{2}:\d{2}[.,]\d{3}]\s*(.*)$""")
+
+    fun segmentText(line: String): String? =
+        segmentLine.find(line.trim())?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+}

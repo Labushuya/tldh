@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="18 18 72 72" role="img" aria-label="tl;dh app icon">
+  <!-- 108 dp adaptive-icon grid, 72 dp visible; glyph inside the 66 dp safe zone. -->
+  <path d="M54 18C80 18 90 28 90 54C90 80 80 90 54 90C28 90 18 80 18 54C18 28 28 18 54 18Z" fill="#A50B5E"/>
+  <g fill="#FDF7FB">
+    <rect x="32" y="38" width="7" height="32" rx="3.5"/>
+    <rect x="44.2" y="43.2" width="7" height="21.6" rx="3.5"/>
+    <rect x="56.4" y="48.6" width="7" height="10.8" rx="3.5"/>
+    <circle cx="72" cy="54" r="4"/>
+  </g>
+</svg>
