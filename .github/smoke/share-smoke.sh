@@ -10,7 +10,8 @@ mkdir -p "$OUT"
 adb wait-for-device
 adb shell getprop ro.build.version.release
 adb shell getprop ro.product.cpu.abilist
-adb install -r -g "$APK" >/dev/null 2>&1 || adb install -r "$APK"
+adb install -r -g --abi arm64-v8a "$APK" || adb install -r --abi arm64-v8a "$APK"
+adb shell dumpsys package "$PKG" | grep -E "primaryCpuAbi|legacyNativeLibraryDir" | head -3
 # Realistic: notification permission NOT granted (revoke what -g granted).
 adb shell pm revoke "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 
