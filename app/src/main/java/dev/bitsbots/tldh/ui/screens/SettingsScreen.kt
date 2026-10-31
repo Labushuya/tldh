@@ -220,7 +220,7 @@ private fun UpdatesSection(updates: UpdateController, appVersion: String) {
                         UpdateUiState.Idle -> (if (updates.configured) "Prüfung nur auf Knopfdruck" else "Update-Quelle im Build nicht gesetzt") to TldhColors.TextMuted
                         UpdateUiState.Checking -> "Suche nach Updates …" to TldhColors.TextMuted
                         UpdateUiState.UpToDate -> "Du hast die neueste Version" to TldhColors.Success
-                        is UpdateUiState.Available -> "Version ${state.update.version} verfügbar" to TldhColors.Glow
+                        is UpdateUiState.Available -> "Version ${state.update.version} verfügbar" to TldhColors.Text
                         is UpdateUiState.Downloading -> "Wird geladen · ${(state.progress * 100).toInt()} %" to TldhColors.TextMuted
                         is UpdateUiState.ReadyToInstall -> "Geladen und geprüft (SHA-256)" to TldhColors.Success
                         is UpdateUiState.Error -> state.message to TldhColors.Danger

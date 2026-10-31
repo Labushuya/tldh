@@ -48,7 +48,7 @@ fun ModelOptions(
                     Text(
                         "Wird geladen · ${(download.progress * 100).toInt()} %",
                         style = TldhType.Caption.tabular(),
-                        color = TldhColors.Glow,
+                        color = TldhColors.Text,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                     LinearProgress(download.progress, Modifier.padding(top = 6.dp))

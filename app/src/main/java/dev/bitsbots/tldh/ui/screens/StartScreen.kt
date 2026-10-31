@@ -140,13 +140,13 @@ fun StartScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Erkennung", style = TldhType.Small, color = TldhColors.TextMuted)
-                    val color = when (recognition.tone) {
-                        StatusTone.Ready -> TldhColors.Success
-                        StatusTone.Attention -> TldhColors.Unsure
-                        StatusTone.Busy -> TldhColors.Glow
-                        StatusTone.Unavailable -> TldhColors.Danger
+                    when (recognition.tone) {
+                        StatusTone.Ready -> Pill(text = recognition.label, color = TldhColors.Success)
+                        StatusTone.Attention -> Pill(text = recognition.label, color = TldhColors.Unsure)
+                        // The glow tone is too dark for small text; it only tints the background here.
+                        StatusTone.Busy -> Pill(text = recognition.label, color = TldhColors.Text, background = TldhColors.Glow.copy(alpha = 0.18f))
+                        StatusTone.Unavailable -> Pill(text = recognition.label, color = TldhColors.Danger)
                     }
-                    Pill(text = recognition.label, color = color)
                 }
                 GroupDivider(inset = 0.dp)
                 Row(

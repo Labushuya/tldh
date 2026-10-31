@@ -1,17 +1,20 @@
 # Architecture
 
-## Current v0.6.0 shape
+## Current v0.7.0 shape
 
 ```text
-ACTION_SEND Intent
+ACTION_SEND intent (share)        ACTION_OPEN_DOCUMENT ("Audiodatei öffnen")
+  ↓                                 ↓
+MainActivity / TldhApp (state machine: Idle → NeedsModel → Processing → Result | Error)
   ↓
-MainActivity → SessionManager (wipe previous session)
+SessionManager (wipe previous session, new session folder)
   ↓
-ShareIntentReader → AudioIngestor (format, size, duration guardrails)
+AudioIngestor (format detection, size and duration limits)
   ↓
-PcmAudioPreparer (MediaCodec decode → 16 kHz mono PCM16)
+PcmAudioPreparer (MediaCodec decode → 16 kHz mono PCM16) → WaveformSampler (loudness bars)
   ↓
-WhisperCliTranscriber (whisper-cli child process, --output-json-full)
+WhisperCliTranscriber (whisper-cli child process; progress from stderr, live segments from stdout,
+                       --output-json-full for words)
   ↓
 WhisperJsonParser → WordAssembler (words + token probabilities + timestamps)
   ↓
@@ -21,8 +24,14 @@ RuleBasedSummaryEngine (verbatim TL;DR, questions, dates/numbers, tasks, uncerta
   ↓
 ReplySuggester (intent rules + reply templates in three tones) · NoteFormatter
   ↓
-Compose Result UI (Prüfen card, key points, replies, highlighted transcript, SnippetPlayer)
+Compose screens: Start · Setup · Processing · Result · Settings · Error
+  ↓
+Close result → session wipe → Start with confirmation
 ```
+
+UI code lives in `ui/`: `TldhApp.kt` (state, navigation, processing, model downloads), `screens/` (one file per screen), `components/` (glass, controls, surfaces, waveform, icons) and `theme/` (tokens from [DESIGN.md](../DESIGN.md)). Pure text formatting for the screens is in `ui/UiText.kt` and unit-tested.
+
+Glass: `Modifier.glassSource` records the scrolling content into a `GraphicsLayer`; `GlassPane` draws that layer again with a `BlurEffect`, clipped to its shape, under a tint and a hairline. On Android < 12 the pane falls back to a near-opaque tint.
 
 `whisper-cli` is built from `whisper.cpp` source by `scripts/build-whisper-android.sh` (Gradle task `buildWhisperCli`) and packaged as `lib/arm64-v8a/libwhisper_cli*.so`, so Android extracts it into the native library dir, the one app location it may execute from.
 

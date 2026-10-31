@@ -31,11 +31,15 @@ There is no analytics, telemetry, account system or cloud audio processing.
 
 ## Session data
 
-Session data is temporary and must be wiped:
+Session data (the copied audio, the decoded PCM used for snippet playback, whisper's output) lives in one `tldh-session-<uuid>` folder per voice note and is wiped:
 
+- when the user closes the result (X, back, or "Session löschen"); the app then returns to the start screen and confirms the deletion
+- when a new voice note is shared or opened
+- when processing is cancelled or fails
 - at app start for orphaned sessions
-- when the user explicitly deletes the session
 - when the app is closed normally
+
+Audio picked with "Audiodatei öffnen" is read through the system file picker's temporary permission; tl;dh does not request storage permissions and keeps no reference to the file after the session.
 
 Hard process kills can bypass Android lifecycle callbacks. Therefore orphan cleanup on next launch is mandatory.
 
