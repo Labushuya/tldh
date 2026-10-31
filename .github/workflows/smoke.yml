@@ -1,6 +1,6 @@
 name: tldh - Emulator share smoke test
 
-# Shares an audio file into the debug build on emulators (Android 13-15), the way WhatsApp does,
+# Shares an audio file into the debug build on emulators (Android 14-16), the way WhatsApp does,
 # and reports crashes, screen text and foreground-service state in the job log.
 on:
   workflow_dispatch:
@@ -18,7 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [ 33, 34, 35 ]
+        # x86_64 images from API 34 run arm64 apps (whisper-cli) via native bridge; API 33 cannot.
+        api: [ 34, 35, 36 ]
     steps:
       - uses: actions/checkout@v4
 

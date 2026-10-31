@@ -14,7 +14,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - If Android refuses the background service for any other reason, tl;dh no longer crashes; the voice note is processed anyway.
 
 ### Added
-- Emulator smoke test in CI (Android 13, 14, 15): shares an audio file into the app, checks for crashes, the foreground service, leaving the app and rotation.
+- Emulator smoke test in CI (Android 14, 15, 16): shares an audio file into the app, checks for crashes, the foreground service, leaving the app and rotation.
 
 
 ## [0.7.1] - 2026-10-31
