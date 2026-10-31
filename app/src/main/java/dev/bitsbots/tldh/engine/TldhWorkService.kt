@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -36,6 +37,7 @@ class TldhWorkService : Service() {
     private var observer: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var foregroundAsTranscription: Boolean? = null
+    private var inForeground = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -54,13 +56,11 @@ class TldhWorkService : Service() {
         val engine = TldhEngine.get(this)
         if (intent?.action == ACTION_CANCEL) engine.cancelWork()
         val status = engine.currentWork()
-        // Android requires startForeground() after startForegroundService(), even if the work
-        // already finished in the meantime.
-        goForeground(status ?: WorkStatus("tl;dh", "Wird beendet …", null, transcribing = false))
         if (status == null) {
             stop()
             return START_NOT_STICKY
         }
+        goForeground(status)
         if (observer == null) {
             observer = scope.launch {
                 engine.work.conflate().collect { next ->
@@ -92,31 +92,50 @@ class TldhWorkService : Service() {
     }
 
     private fun show(status: WorkStatus) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && foregroundAsTranscription != status.transcribing) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && inForeground && foregroundAsTranscription != status.transcribing) {
             goForeground(status)
         } else {
             getSystemService(NotificationManager::class.java).notify(WorkNotifications.ID_WORK, WorkNotifications.work(this, status))
         }
     }
 
+    /**
+     * Promotes the service to the foreground. The type goes straight to the platform:
+     * ServiceCompat drops types newer than Android 14 (mediaProcessing), which Android 15 then
+     * rejects as "type none" and kills the app. If Android refuses the foreground service for any
+     * reason, the work still runs (as a plain started service) instead of crashing tl;dh.
+     */
     private fun goForeground(status: WorkStatus) {
-        val type = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && status.transcribing ->
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            else -> 0
+        val notification = WorkNotifications.work(this, status)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && status.transcribing) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                }
+                startForeground(WorkNotifications.ID_WORK, notification, type)
+            } else {
+                startForeground(WorkNotifications.ID_WORK, notification)
+            }
+            inForeground = true
+            foregroundAsTranscription = status.transcribing
+        } catch (refused: RuntimeException) {
+            Log.w(TAG, "Foreground service refused; work continues without it", refused)
         }
-        ServiceCompat.startForeground(this, WorkNotifications.ID_WORK, WorkNotifications.work(this, status), type)
-        foregroundAsTranscription = status.transcribing
     }
 
     private fun stop() {
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        if (inForeground) ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        inForeground = false
+        // Without a foreground service the progress notification is a normal one; remove it too.
+        getSystemService(NotificationManager::class.java).cancel(WorkNotifications.ID_WORK)
         stopSelf()
     }
 
     companion object {
         const val ACTION_CANCEL = "dev.bitsbots.tldh.action.CANCEL_WORK"
+        private const val TAG = "TldhWorkService"
         private const val MAX_WAKE_LOCK_MS = 60L * 60L * 1000L
         private const val NOTIFY_INTERVAL_MS = 500L
         private const val HANDOVER_GRACE_MS = 400L

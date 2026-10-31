@@ -41,6 +41,8 @@ adb shell am start -W -a android.intent.action.SEND -t "audio/ogg" \
   --eu android.intent.extra.STREAM "content://$PKG.fileprovider/updates/smoke-audio.ogg" \
   -n "$PKG/dev.bitsbots.tldh.MainActivity"
 sleep 6;  shot "6 s after share"
+FG=$(adb shell dumpsys activity services "$PKG" | grep -E "isForeground=true" | head -1)
+echo "foreground service: ${FG:-NOT IN FOREGROUND}"
 sleep 20; shot "26 s after share"
 adb shell input keyevent KEYCODE_HOME
 sleep 15; shot "15 s after HOME (background)"
@@ -59,4 +61,8 @@ if grep -q "FATAL EXCEPTION" "$OUT/logcat.txt" && grep -A3 "FATAL EXCEPTION" "$O
   grep -A40 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -80
   exit 1
 fi
-echo "SMOKE RESULT: no crash"
+if [ -z "$FG" ]; then
+  echo "SMOKE RESULT: no crash, but the work service did not reach the foreground"
+  exit 1
+fi
+echo "SMOKE RESULT: no crash, work service in foreground"
