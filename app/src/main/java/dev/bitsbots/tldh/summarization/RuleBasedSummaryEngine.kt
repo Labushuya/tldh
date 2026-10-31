@@ -1,5 +1,7 @@
 package dev.bitsbots.tldh.summarization
 
+import dev.bitsbots.tldh.analysis.NoteFormatter
+import dev.bitsbots.tldh.analysis.ReplySuggester
 import dev.bitsbots.tldh.analysis.TranscriptAnalyzer
 import dev.bitsbots.tldh.audio.AudioIngestPolicy
 import dev.bitsbots.tldh.audio.AudioMetadata
@@ -45,12 +47,17 @@ class RuleBasedSummaryEngine {
             datesAndNumbers = analysis?.datesAndNumbers.orEmpty(),
             tasks = analysis?.tasks.orEmpty(),
             checks = analysis?.checks.orEmpty(),
+            replies = analysis?.takeIf { transcript != null }?.let { ReplySuggester.suggest(it) },
+            note = analysis?.takeIf { transcript != null }?.let { NoteFormatter.format(it, noteLabel(durationText)) },
             warnings = warnings,
             transcript = transcript,
             transcriptionStatus = "${transcription.engine}: ${transcription.status.name.lowercase()}",
             technicalDetails = technicalDetails
         )
     }
+
+    private fun noteLabel(durationText: String): String =
+        "${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.GERMANY).format(java.util.Date())} · $durationText"
 
     private fun humanBytes(bytes: Long): String {
         val mib = 1024L * 1024L

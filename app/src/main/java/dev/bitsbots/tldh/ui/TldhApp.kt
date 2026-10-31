@@ -16,6 +16,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,8 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import dev.bitsbots.tldh.R
 import dev.bitsbots.tldh.analysis.CriticalFinding
+import dev.bitsbots.tldh.analysis.ReplySuggestions
+import dev.bitsbots.tldh.analysis.ReplyTone
 import dev.bitsbots.tldh.audio.AudioIngestor
 import dev.bitsbots.tldh.audio.SnippetPlayer
 import dev.bitsbots.tldh.session.SessionManager
@@ -553,6 +556,11 @@ private fun ResultCard(summary: AudioSummary, transcription: TranscriptionOutcom
 
         KeyPointsBlock(summary)
 
+        summary.replies?.let { replies ->
+            Spacer(Modifier.height(14.dp))
+            RepliesBlock(replies, summary.note, onCopy = { text -> context.copyToClipboard(text) })
+        }
+
         if (summary.transcript != null) {
             Spacer(Modifier.height(14.dp))
             TranscriptBlock(
@@ -658,6 +666,75 @@ private fun CheckRows(checks: List<CriticalFinding>, shown: List<CriticalFinding
         if (checks.size > shown.size) {
             Spacer(Modifier.height(8.dp))
             Text("+ ${checks.size - shown.size} weitere im Transkript markiert", color = TldhTextMuted, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/**
+ * Reply suggestions for the detected kind of message, in three tones. Tapping a reply copies it,
+ * ready to paste into the chat; the note button copies the content as a note.
+ */
+@Composable
+private fun RepliesBlock(replies: ReplySuggestions, note: String?, onCopy: (String) -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("tldh_settings", Context.MODE_PRIVATE) }
+    var tone by remember {
+        mutableStateOf(ReplyTone.entries.firstOrNull { it.name == prefs.getString("reply_tone", null) } ?: ReplyTone.FREUNDLICH)
+    }
+    var copied by remember(replies) { mutableStateOf<String?>(null) }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E0818)),
+        shape = RoundedCornerShape(22.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text("Antworten", color = TldhHotPurple, fontWeight = FontWeight.Bold)
+            Text("Erkannt: ${replies.intent.label}", color = TldhTextMuted, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReplyTone.entries.forEach { option ->
+                    val select = {
+                        tone = option
+                        prefs.edit().putString("reply_tone", option.name).apply()
+                    }
+                    if (option == tone) {
+                        Button(onClick = select) { Text(option.label) }
+                    } else {
+                        OutlinedButton(onClick = select) { Text(option.label) }
+                    }
+                }
+            }
+            replies.byTone.getValue(tone).forEach { reply ->
+                Spacer(Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2B0B22)),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onCopy(reply)
+                            copied = reply
+                        }
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(reply, color = Color(0xFFFBE8F3), modifier = Modifier.weight(1f))
+                        if (copied == reply) Text("Kopiert ✓", color = TldhSuccess, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Antippen kopiert die Antwort. In WhatsApp ins Eingabefeld tippen, gedrückt halten und einfügen.",
+                color = TldhTextMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            note?.let { text ->
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = {
+                    onCopy(text)
+                    copied = text
+                }) { Text(if (copied == text) "Notiz kopiert ✓" else "Als Notiz kopieren") }
+            }
         }
     }
 }
