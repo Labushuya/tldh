@@ -19,8 +19,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,7 +30,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
@@ -65,13 +62,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import dev.bitsbots.tldh.R
+import dev.bitsbots.tldh.analysis.CriticalFinding
 import dev.bitsbots.tldh.audio.AudioIngestor
 import dev.bitsbots.tldh.audio.SnippetPlayer
 import dev.bitsbots.tldh.session.SessionManager
 import dev.bitsbots.tldh.share.SharedAudio
 import dev.bitsbots.tldh.share.ShareIntentReader
 import dev.bitsbots.tldh.summarization.AudioSummary
-import dev.bitsbots.tldh.summarization.PreviewSummaryEngine
+import dev.bitsbots.tldh.summarization.RuleBasedSummaryEngine
 import dev.bitsbots.tldh.transcription.ConfidenceLevel
 import dev.bitsbots.tldh.transcription.DeviceProfiler
 import dev.bitsbots.tldh.transcription.PcmAudioPreparer
@@ -186,7 +184,7 @@ fun TldhApp(
                     pcmFile = prepared.file,
                     sampleRate = prepared.sampleRate
                 )
-                TldhUiState.Result(PreviewSummaryEngine().summarize(metadata, outcome), outcome)
+                TldhUiState.Result(RuleBasedSummaryEngine().summarize(metadata, outcome), outcome)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -528,7 +526,6 @@ private fun ModelSetupCard(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ResultCard(summary: AudioSummary, transcription: TranscriptionOutcome, sessionManager: SessionManager) {
     val context = LocalContext.current
@@ -536,44 +533,38 @@ private fun ResultCard(summary: AudioSummary, transcription: TranscriptionOutcom
     val snippetPlayer = remember { SnippetPlayer() }
     DisposableEffect(snippetPlayer) { onDispose { snippetPlayer.stop() } }
     var showDetails by remember(summary) { mutableStateOf(false) }
+    val playWord: (TranscriptWord) -> Unit = { word ->
+        val pcm = transcription.pcmFile
+        val start = word.startMs
+        val end = word.endMs
+        if (pcm != null && start != null && end != null) {
+            scope.launch { runCatching { snippetPlayer.play(pcm, transcription.sampleRate, start, end) } }
+        }
+    }
     TldhCard {
         Text("Long story, short.", color = TldhHotPurple, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         TldrBlock(summary.tldr)
+
+        if (transcription.words.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            ChecksBlock(summary.checks, onPlay = playWord)
+        }
+
+        KeyPointsBlock(summary)
 
         if (summary.transcript != null) {
             Spacer(Modifier.height(14.dp))
             TranscriptBlock(
                 transcript = summary.transcript,
                 words = transcription.words,
-                onWordTap = { word ->
-                    val pcm = transcription.pcmFile
-                    val start = word.startMs
-                    val end = word.endMs
-                    if (pcm != null && start != null && end != null) {
-                        scope.launch { runCatching { snippetPlayer.play(pcm, transcription.sampleRate, start, end) } }
-                    }
-                }
+                onWordTap = playWord
             )
         }
 
         if (summary.warnings.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             GuardrailWarningBlock(summary.warnings.take(3))
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Text("Kurzpunkte", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        summary.keyPoints.take(3).forEach { point ->
-            Text("• $point", color = TldhTextMuted)
-        }
-
-        if (summary.tags.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                summary.tags.take(5).forEach { tag -> AssistChip(onClick = {}, label = { Text(tag) }) }
-            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -607,7 +598,7 @@ private fun TldrBlock(text: String) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(18.dp)) {
-            Text("Vorschau · erste Sätze", color = TldhTextMuted, style = MaterialTheme.typography.labelLarge)
+            Text("TL;DR · wörtlich aus dem Transkript", color = TldhTextMuted, style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(6.dp))
             Text(
                 text = text,
@@ -616,6 +607,72 @@ private fun TldrBlock(text: String) {
                 fontWeight = FontWeight.SemiBold
             )
         }
+    }
+}
+
+/**
+ * Lists meaning-critical words (negations, times, numbers, conditions, modal verbs) that whisper
+ * recognized with low confidence, each with a button to hear that moment.
+ */
+@Composable
+private fun ChecksBlock(checks: List<CriticalFinding>, onPlay: (TranscriptWord) -> Unit) {
+    val shown = checks.take(6)
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (checks.isEmpty()) TldhSuccess.copy(alpha = 0.10f) else TldhUnsure.copy(alpha = 0.12f)
+        ),
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            if (checks.isEmpty()) {
+                Text("Keine bedeutungsändernden Wörter unsicher erkannt.", color = TldhSuccess, fontWeight = FontWeight.SemiBold)
+            } else {
+                CheckRows(checks, shown, onPlay)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CheckRows(checks: List<CriticalFinding>, shown: List<CriticalFinding>, onPlay: (TranscriptWord) -> Unit) {
+    Column {
+        Text("Prüfen", color = TldhUnsure, fontWeight = FontWeight.Bold)
+        Text("Diese Wörter können die Aussage ändern und sind unsicher erkannt.", color = TldhTextMuted, style = MaterialTheme.typography.bodySmall)
+        shown.forEach { check ->
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${check.category.label}: „${check.word.text.trimEnd(',', '.', '!', '?')}“ · ${(check.word.probability * 100).toInt()} %",
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (check.word.confidence == ConfidenceLevel.SEHR_UNSICHER) TldhDanger else TldhUnsure
+                    )
+                    Text(check.sentence, color = TldhTextMuted, style = MaterialTheme.typography.bodySmall)
+                }
+                check.word.startMs?.let { start ->
+                    TextButton(onClick = { onPlay(check.word) }) { Text("▶ ${formatTimestamp(start)}") }
+                }
+            }
+        }
+        if (checks.size > shown.size) {
+            Spacer(Modifier.height(8.dp))
+            Text("+ ${checks.size - shown.size} weitere im Transkript markiert", color = TldhTextMuted, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun KeyPointsBlock(summary: AudioSummary) {
+    listOf(
+        "Fragen an dich" to summary.questions,
+        "Termine & Zahlen" to summary.datesAndNumbers,
+        "Aufgaben & Bitten" to summary.tasks
+    ).filter { it.second.isNotEmpty() }.forEach { (title, items) ->
+        Spacer(Modifier.height(14.dp))
+        Text(title, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        items.forEach { Text("• $it", color = TldhTextMuted) }
     }
 }
 
@@ -683,18 +740,6 @@ private fun DetailsBlock(summary: AudioSummary) {
                 Spacer(Modifier.height(8.dp))
             }
             summary.technicalDetails.forEach { detail -> Text("• $detail", color = TldhTextMuted) }
-            summary.category?.let {
-                Spacer(Modifier.height(8.dp))
-                Text("Kategorie: $it", color = TldhTextMuted)
-            }
-            if (summary.replySuggestions.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                Text("Antwortvorschläge", color = TldhHotPurple, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                summary.replySuggestions.forEach { reply ->
-                    Text("[${reply.tone}] ${reply.text}", color = TldhTextMuted)
-                }
-            }
         }
     }
 }
@@ -780,24 +825,30 @@ private fun formatSummary(summary: AudioSummary): String = buildString {
     appendLine()
     appendLine("TL;DR")
     appendLine(summary.tldr)
-    appendLine()
+    if (summary.checks.isNotEmpty()) {
+        appendLine()
+        appendLine("Prüfen (unsicher erkannt)")
+        summary.checks.forEach { appendLine("- ${it.category.label}: \"${it.word.text.trimEnd(',', '.', '!', '?')}\" in: ${it.sentence}") }
+    }
+    listOf(
+        "Fragen an dich" to summary.questions,
+        "Termine & Zahlen" to summary.datesAndNumbers,
+        "Aufgaben & Bitten" to summary.tasks
+    ).filter { it.second.isNotEmpty() }.forEach { (title, items) ->
+        appendLine()
+        appendLine(title)
+        items.forEach { appendLine("- $it") }
+    }
     summary.transcript?.let {
+        appendLine()
         appendLine("Transkript")
         appendLine(it)
-        appendLine()
     }
-    if (summary.warnings.isNotEmpty()) {
-        appendLine("Hinweise / Guardrails")
-        summary.warnings.take(4).forEach { appendLine("- $it") }
-        appendLine()
-    }
-    appendLine("Kurzpunkte")
-    summary.keyPoints.take(4).forEach { appendLine("- $it") }
-    if (summary.tags.isNotEmpty()) {
-        appendLine()
-        appendLine("Tags: ${summary.tags.joinToString(", ")}")
-    }
-    summary.category?.let { appendLine("Kategorie: $it") }
+}
+
+private fun formatTimestamp(ms: Long): String {
+    val seconds = ms / 1000
+    return "%d:%02d".format(seconds / 60, seconds % 60)
 }
 
 

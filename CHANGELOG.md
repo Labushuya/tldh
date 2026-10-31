@@ -7,6 +7,23 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.5.0] - 2026-10-31
+
+### Added
+- "Prüfen" card: meaning-critical words (negations, times/dates, numbers/amounts, conditions, modal verbs) that whisper recognized with low confidence, most uncertain first, each with its sentence and a button to replay that moment.
+- Rule-based TL;DR: the most informative 1–2 sentences, scored by questions, requests, dates, numbers and repeated keywords; greetings and sign-offs are skipped. Everything is taken verbatim from the transcript.
+- Key points in three groups: "Fragen an dich", "Termine & Zahlen" (phrases such as "am Samstag um 17 Uhr", "20 Euro") and "Aufgaben & Bitten".
+- "Alles kopieren" now includes TL;DR, checks, key points and transcript.
+
+### Changed
+- whisper-cli binaries are stripped in the native build, which shrinks the APK and the installed size.
+- `PreviewSummaryEngine` is replaced by `RuleBasedSummaryEngine`; unused tag/category/reply fields are removed from the summary model.
+
+### Known limitations
+- Names are not flagged yet: German capitalizes every noun, so a rule cannot tell names apart without a name list.
+- Confidence thresholds (0.70 / 0.40) are initial values and still need calibration against real voice notes.
+
+
 ## [0.4.0] - 2026-10-31
 
 ### Added

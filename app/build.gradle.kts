@@ -8,10 +8,10 @@ plugins {
 
 val appVersionName = (findProperty("VERSION_NAME") as String?)
     ?: System.getenv("VERSION_NAME")
-    ?: "0.4.0"
+    ?: "0.5.0"
 val appVersionCode = ((findProperty("VERSION_CODE") as String?)
     ?: System.getenv("VERSION_CODE")
-    ?: "400").toInt()
+    ?: "500").toInt()
 
 /** NDK used to cross-compile whisper.cpp; CI installs exactly this version via sdkmanager. */
 val whisperNdkVersion = "27.2.12479018"
@@ -132,7 +132,7 @@ android {
         }
         jniLibs {
             // whisper-cli is an executable, not a loadable library: it must be extracted to disk on
-            // install and must not be touched by symbol stripping.
+            // install; it is stripped by the build script, so AGP's own strip step must leave it alone.
             useLegacyPackaging = true
             keepDebugSymbols += "**/libwhisper_cli*.so"
         }

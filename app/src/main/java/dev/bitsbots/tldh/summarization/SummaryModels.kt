@@ -1,16 +1,14 @@
 package dev.bitsbots.tldh.summarization
 
-data class ReplySuggestion(
-    val tone: String,
-    val text: String
-)
+import dev.bitsbots.tldh.analysis.CriticalFinding
 
 data class AudioSummary(
     val tldr: String,
-    val keyPoints: List<String>,
-    val tags: List<String>,
-    val category: String?,
-    val replySuggestions: List<ReplySuggestion>,
+    val questions: List<String>,
+    val datesAndNumbers: List<String>,
+    val tasks: List<String>,
+    /** Uncertain meaning-critical words the user should check by ear. */
+    val checks: List<CriticalFinding>,
     val warnings: List<String>,
     val transcript: String? = null,
     val transcriptionStatus: String? = null,
