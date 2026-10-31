@@ -213,4 +213,12 @@ class WhisperTranscriptParsingTest {
     @Test fun emptyTranscriptionYieldsNoWords() {
         assertTrue(WordAssembler.assemble(WhisperJsonParser.parse("""{"transcription": []}""")).isEmpty())
     }
+
+    @Test
+    fun parsesLiveSegmentLinesFromStdout() {
+        assertEquals("Hey, ich wollte nur kurz fragen.", WhisperStdout.segmentText("[00:00:00.000 --> 00:00:04.200]   Hey, ich wollte nur kurz fragen."))
+        assertEquals(null, WhisperStdout.segmentText(""))
+        assertEquals(null, WhisperStdout.segmentText("whisper_init_from_file: loading model"))
+        assertEquals(null, WhisperStdout.segmentText("[00:00:04.200 --> 00:00:05.000]   "))
+    }
 }

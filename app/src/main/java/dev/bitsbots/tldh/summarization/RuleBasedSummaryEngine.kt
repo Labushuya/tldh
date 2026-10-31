@@ -13,7 +13,11 @@ import dev.bitsbots.tldh.transcription.TranscriptionStatus
  * verbatim from the transcript (see [TranscriptAnalyzer]), so nothing is generated or invented.
  */
 class RuleBasedSummaryEngine {
-    fun summarize(metadata: AudioMetadata, transcription: TranscriptionOutcome): AudioSummary {
+    fun summarize(
+        metadata: AudioMetadata,
+        transcription: TranscriptionOutcome,
+        source: String = "Teilen (ACTION_SEND)"
+    ): AudioSummary {
         val name = metadata.displayName ?: "geteilte Audiodatei"
         val sizeText = metadata.sizeBytes?.let { humanBytes(it) } ?: "unbekannte Größe"
         val durationText = AudioIngestPolicy.formatDuration(metadata.durationMs)
@@ -30,10 +34,10 @@ class RuleBasedSummaryEngine {
         }
 
         val technicalDetails = listOf(
-            "Quelle: Android ACTION_SEND",
+            "Quelle: $source",
             "Datei: $name",
             "MIME: ${metadata.mimeType ?: "unbekannt"}; Extension: ${metadata.extension ?: "unbekannt"}",
-            "Format: ${metadata.format}; Größe: $sizeText; Dauer: $durationText",
+            "Format: ${metadata.format.label}; Größe: $sizeText; Dauer: $durationText",
             "Limits: 50 MB, Warnung ab 3:00 min, Soft 10:00 min, Hard 15:00 min",
             "Transkription: ${transcription.engine}${transcription.modelName?.let { " · $it" } ?: ""}; ${transcription.status}" +
                 (transcription.elapsedMs?.let { "; %.1f s".format(java.util.Locale.GERMANY, it / 1000.0) } ?: ""),

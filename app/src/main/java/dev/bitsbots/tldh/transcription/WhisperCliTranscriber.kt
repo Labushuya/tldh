@@ -47,12 +47,12 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
         model: File,
         workDir: File,
         audioDurationMs: Long?,
+        onSegment: (String) -> Unit = {},
         onProgress: (Int) -> Unit
     ): WhisperRunResult = withContext(Dispatchers.IO) {
         val started = System.currentTimeMillis()
         val wav = WavWriter.writePcm16Mono(pcmFile, File(workDir, "tldh-whisper-input.wav"), sampleRate)
         val outputBase = File(workDir, "tldh-whisper-output")
-        val stdoutFile = File(workDir, "tldh-whisper-stdout.txt")
         val command = listOf(
             runtime.executable.absolutePath,
             "-m", model.absolutePath,
@@ -65,8 +65,16 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
         )
         val process = ProcessBuilder(command)
             .directory(workDir)
-            .redirectOutput(stdoutFile)
             .start()
+        // whisper-cli prints each finished segment to stdout (flushed), so the UI can show the
+        // first recognized sentences while the rest is still being transcribed.
+        val stdoutReader = thread(name = "whisper-cli-stdout", isDaemon = true) {
+            runCatching {
+                process.inputStream.bufferedReader().forEachLine { line ->
+                    WhisperStdout.segmentText(line)?.let(onSegment)
+                }
+            }
+        }
         val stderrTail = ArrayDeque<String>()
         val progressPattern = Regex("""progress\s*=\s*(\d+)%""")
         val stderrReader = thread(name = "whisper-cli-stderr", isDaemon = true) {
@@ -87,6 +95,7 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
                 throw IllegalStateException("Transkription nach ${timeoutMs / 60_000} min abgebrochen (Zeitlimit).")
             }
             stderrReader.join(2_000)
+            stdoutReader.join(2_000)
             val exitCode = process.exitValue()
             if (exitCode != 0) {
                 val tail = synchronized(stderrTail) { stderrTail.takeLast(4).joinToString(" | ") }
@@ -107,7 +116,7 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
             )
         } finally {
             if (process.isAlive) process.destroyForcibly()
-            listOf(wav, stdoutFile, File("${outputBase.absolutePath}.json"), File("${outputBase.absolutePath}.txt")).forEach { it.delete() }
+            listOf(wav, File("${outputBase.absolutePath}.json"), File("${outputBase.absolutePath}.txt")).forEach { it.delete() }
         }
     }
 }

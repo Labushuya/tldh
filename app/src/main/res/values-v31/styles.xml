@@ -1,0 +1,13 @@
+<resources>
+    <style name="Theme.Tldh" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">@color/tldh_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:colorAccent">@color/tldh_accent</item>
+        <!-- Android 12+ splash: the adaptive icon on the brand background. -->
+        <item name="android:windowSplashScreenBackground">@color/tldh_background</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/tldh_accent</item>
+    </style>
+</resources>

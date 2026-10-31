@@ -20,7 +20,7 @@ object AudioIngestPolicy {
             if (durationMs != null && durationMs > HARD_DURATION_LIMIT_MS) {
                 add(AudioRejectReason.AUDIO_TOO_LONG)
             }
-            if (!metadata.format.isSupportedForMvp) add(AudioRejectReason.UNSUPPORTED_FORMAT)
+            if (!metadata.format.isSupported) add(AudioRejectReason.UNSUPPORTED_FORMAT)
             if (metadata.headerBytes.isEmpty()) add(AudioRejectReason.EMPTY_HEADER_PROBE)
         }
 
@@ -60,11 +60,11 @@ data class AudioValidation(
 )
 
 enum class AudioRejectReason(val userMessage: String) {
-    EMPTY_FILE("Die geteilte Audiodatei ist leer."),
-    FILE_TOO_LARGE("Die Audiodatei überschreitet das aktuelle MVP-Limit von 50 MB."),
-    AUDIO_TOO_LONG("Die Audiodatei überschreitet das aktuelle Hard-Limit von 15 Minuten."),
-    UNSUPPORTED_FORMAT("Das Audioformat wird im MVP noch nicht unterstützt."),
-    EMPTY_HEADER_PROBE("Die Datei konnte nicht ausreichend gelesen werden, um das Format zu prüfen.")
+    EMPTY_FILE("Die Audiodatei ist leer."),
+    FILE_TOO_LARGE("Die Datei ist größer als 50 MB."),
+    AUDIO_TOO_LONG("Die Aufnahme ist länger als 15 Minuten."),
+    UNSUPPORTED_FORMAT("Dieses Dateiformat kann tl;dh nicht lesen. Möglich sind Sprachnachrichten (Opus/Ogg) sowie M4A, MP3, WAV, FLAC, AMR, AAC und WebM."),
+    EMPTY_HEADER_PROBE("Die Datei ließ sich nicht lesen.")
 }
 
 class AudioIngestException(
