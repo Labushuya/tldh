@@ -79,7 +79,7 @@ import dev.bitsbots.tldh.ui.components.RoundIconButton
 import dev.bitsbots.tldh.ui.components.SegmentedControl
 import dev.bitsbots.tldh.ui.components.TextMark
 import dev.bitsbots.tldh.ui.components.TldhIcons
-import dev.bitsbots.tldh.ui.components.markBackground
+import dev.bitsbots.tldh.ui.components.MarkEmphasis
 import dev.bitsbots.tldh.ui.components.rememberGlassState
 import dev.bitsbots.tldh.ui.components.rememberPressScale
 import dev.bitsbots.tldh.ui.copyToClipboard
@@ -271,11 +271,7 @@ private fun TldrSection(summary: AudioSummary, markUncertain: Boolean) {
             emptyList()
         }
         val marks = spans.map { TextMark(it.start, it.end, if (it.strong) MarkStyle.Wavy else MarkStyle.Dotted) }
-        val text = buildAnnotatedString {
-            append(summary.tldr)
-            marks.forEach { addStyle(markBackground(it.style), it.start, it.end) }
-        }
-        MarkedText(text = text, marks = marks, style = TldhType.Tldr)
+        MarkedText(text = AnnotatedString(summary.tldr), marks = marks, style = TldhType.Tldr)
         Text("Wörtlich aus dem Transkript, nichts dazuerfunden", style = TldhType.Caption, color = TldhColors.TextMuted)
     }
 }
@@ -350,7 +346,7 @@ private fun CheckRow(check: CriticalFinding, playing: Boolean, onPlay: () -> Uni
             val marks = range?.let { listOf(TextMark(it.first, it.last + 1, style)) }.orEmpty()
             val text = buildAnnotatedString {
                 append(check.sentence)
-                marks.forEach { addStyle(markBackground(style), it.start, it.end) }
+                marks.forEach { addStyle(MarkEmphasis, it.start, it.end) }
             }
             MarkedText(text = text, marks = marks, style = TldhType.Small, color = TldhColors.TextMuted)
         }
@@ -593,9 +589,8 @@ private fun TranscriptSection(
 private class RenderedTranscript(val text: AnnotatedString, val marks: List<TextMark>)
 
 /**
- * The transcript as one annotated string: uncertain words get a tinted background (cheap span
- * style) plus a mark for the underline and tap handling. Collapsed, only the first words are laid
- * out at all.
+ * The transcript as plain text plus marks: MarkedText draws tint and underline for uncertain words
+ * and handles taps. Collapsed, only the first words are laid out at all.
  */
 private fun renderTranscript(transcript: String, words: List<TranscriptWord>, markUncertain: Boolean, showAll: Boolean): RenderedTranscript {
     if (words.isEmpty()) return RenderedTranscript(AnnotatedString(transcript), emptyList())
@@ -615,10 +610,7 @@ private fun renderTranscript(transcript: String, words: List<TranscriptWord>, ma
             }
             val start = length
             append(word.text)
-            if (style != null) {
-                addStyle(markBackground(style), start, length)
-                marks += TextMark(start, length, style, tag = index)
-            }
+            if (style != null) marks += TextMark(start, length, style, tag = index)
         }
         if (shown.size < words.size) append(" …")
     }
@@ -629,7 +621,7 @@ private fun renderTranscript(transcript: String, words: List<TranscriptWord>, ma
 private fun LegendItem(word: String, meaning: String, style: MarkStyle) {
     val text = buildAnnotatedString {
         append(word)
-        addStyle(markBackground(style), 0, word.length)
+        addStyle(MarkEmphasis, 0, word.length)
         append(" $meaning")
     }
     MarkedText(text = text, marks = listOf(TextMark(0, word.length, style)), style = TldhType.Caption, color = TldhColors.TextMuted)

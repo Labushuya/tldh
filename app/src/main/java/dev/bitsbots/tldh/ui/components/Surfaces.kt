@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import dev.bitsbots.tldh.ui.theme.TldhColors
 import dev.bitsbots.tldh.ui.theme.TldhGlass
 import dev.bitsbots.tldh.ui.theme.TldhShapes
@@ -188,10 +189,10 @@ fun markColor(style: MarkStyle): Color = when (style) {
     MarkStyle.Wavy -> TldhColors.Danger
 }
 
-fun markBackground(style: MarkStyle): SpanStyle = SpanStyle(
-    color = TldhColors.Text,
-    background = markColor(style).copy(alpha = if (style == MarkStyle.Wavy) 0.18f else 0.15f)
-)
+/** Marked words read in full text color inside muted text; tint and underline are drawn by MarkedText. */
+val MarkEmphasis = SpanStyle(color = TldhColors.Text)
+
+private fun markTint(style: MarkStyle): Color = markColor(style).copy(alpha = if (style == MarkStyle.Wavy) 0.18f else 0.15f)
 
 /**
  * Text whose [marks] get a dotted or wavy underline drawn under the baseline.
@@ -199,7 +200,8 @@ fun markBackground(style: MarkStyle): SpanStyle = SpanStyle(
  * Deliberately no LinkAnnotation per mark: with hundreds of marked words (a long voice note) the
  * link machinery re-laid out the whole text per link and froze the screen for over a minute. Taps
  * go through one gesture handler that maps the touch position to a character offset instead, and
- * the underline geometry is computed once per text layout, not on every frame.
+ * the tint and underline geometry is computed once per text layout, not on every frame. Tints are
+ * drawn rather than set as span backgrounds, so the text itself stays cheap to lay out.
  */
 @Composable
 fun MarkedText(
@@ -236,7 +238,8 @@ fun MarkedText(
             .then(tapModifier)
             .drawBehind {
                 val result = layout ?: return@drawBehind
-                geometry.get(result, marks).forEach { drawMark(it) }
+                val fontPx = if (style.fontSize.isSpecified) style.fontSize.toPx() else 16.dp.toPx()
+                geometry.get(result, marks).forEach { drawMark(it, fontPx) }
             }
     )
 }
@@ -274,9 +277,16 @@ private class MarkGeometryCache {
     }
 }
 
-private fun DrawScope.drawMark(segment: MarkSegment) {
+private fun DrawScope.drawMark(segment: MarkSegment, fontPx: Float) {
     val left = segment.left
     val right = segment.right
+    val pad = 1.5.dp.toPx()
+    drawRoundRect(
+        color = markTint(segment.style),
+        topLeft = Offset(left - pad, segment.baseline - fontPx * 0.92f),
+        size = Size(right - left + 2 * pad, fontPx * 1.22f),
+        cornerRadius = CornerRadius(3.dp.toPx())
+    )
     val y = segment.baseline + 3.dp.toPx()
     val color = markColor(segment.style)
     when (segment.style) {

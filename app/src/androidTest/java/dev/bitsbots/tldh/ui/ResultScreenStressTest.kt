@@ -2,6 +2,10 @@ package dev.bitsbots.tldh.ui
 
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -39,12 +43,21 @@ class ResultScreenStressTest {
     fun longTranscriptWithManyUncertainWordsStaysResponsive() {
         val result = longResult(words = 900)
 
-        val shown = timed("first frame") {
+        var generation by mutableIntStateOf(0)
+        val cold = timed("first frame (cold, includes Compose start-up)") {
             compose.setContent {
                 TldhTheme {
-                    ResultScreen(result = result, markUncertain = true, tone = ReplyTone.FREUNDLICH, onToneChange = {}, onClose = {})
+                    key(generation) {
+                        ResultScreen(result = result, markUncertain = true, tone = ReplyTone.FREUNDLICH, onToneChange = {}, onClose = {})
+                    }
                 }
             }
+            compose.waitForIdle()
+            compose.onRoot().captureToImage()
+        }
+        // What the user sees when a result arrives: a fresh result screen in a warm app.
+        val shown = timed("first frame (warm)") {
+            compose.runOnIdle { generation++ }
             compose.waitForIdle()
             compose.onRoot().captureToImage()
         }
@@ -60,6 +73,7 @@ class ResultScreenStressTest {
                 compose.onRoot().captureToImage()
             }
         }
+        assertTrue("cold first frame took $cold ms", cold < 2 * LIMIT_MS)
         assertTrue("first frame took $shown ms", shown < LIMIT_MS)
         assertTrue("expanding the transcript took $expand ms", expand < LIMIT_MS)
         assertTrue("six scroll steps took $scroll ms", scroll < 2 * LIMIT_MS)
