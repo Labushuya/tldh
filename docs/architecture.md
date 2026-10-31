@@ -1,6 +1,6 @@
 # Architecture
 
-## Current v0.4.0 shape
+## Current v0.5.0 shape
 
 ```text
 ACTION_SEND Intent
@@ -15,9 +15,11 @@ WhisperCliTranscriber (whisper-cli child process, --output-json-full)
   ↓
 WhisperJsonParser → WordAssembler (words + token probabilities + timestamps)
   ↓
-PreviewSummaryEngine (first sentences until v0.5.0)
+TranscriptAnalyzer (SentenceSplitter, CriticalWordDetector, sentence scoring)
   ↓
-Compose Result UI (highlighted transcript, SnippetPlayer)
+RuleBasedSummaryEngine (verbatim TL;DR, questions, dates/numbers, tasks, uncertain critical words)
+  ↓
+Compose Result UI (Prüfen card, key points, highlighted transcript, SnippetPlayer)
 ```
 
 `whisper-cli` is built from `whisper.cpp` source by `scripts/build-whisper-android.sh` (Gradle task `buildWhisperCli`) and packaged as `lib/arm64-v8a/libwhisper_cli*.so`, so Android extracts it into the native library dir, the one app location it may execute from.

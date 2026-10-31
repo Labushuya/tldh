@@ -8,7 +8,7 @@
 
 Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.4.0` local Whisper transcription. Voice notes are transcribed on the device with `whisper.cpp`; uncertain words are highlighted and can be replayed with one tap. The rule-based summary with meaning-critical word warnings is next (`v0.5.0`).
+> **Status:** `v0.5.0` rule-based summary. Voice notes are transcribed on the device with `whisper.cpp`; tl;dh shows a verbatim TL;DR, questions, dates/numbers and requests, and flags uncertain words that could change the meaning (negations, times, numbers) with one-tap replay. Reply suggestions and note mode are next (`v0.6.0`).
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
 ![Android](https://img.shields.io/badge/Android-local--first-A50B5E)
@@ -203,3 +203,10 @@ Duration warnings are now shown directly below the TL;DR and included in the cop
 - Every word carries whisper's token probability. Uncertain words are highlighted (yellow / red); tapping one replays the moment around it.
 - The TL;DR card shows the first sentences as a preview until the rule-based summary of `v0.5.0`.
 - Each new share wipes the previous session; copied text is marked as sensitive for the Android clipboard preview.
+
+
+## v0.5.0 Rule-based summary and meaning checks
+
+- A "Prüfen" card lists uncertain words that can change what was said: negations, times and dates, numbers and amounts, conditions and modal verbs. Each entry shows its sentence and replays that moment with one tap.
+- The TL;DR picks the most informative sentences (questions, requests, dates, numbers, repeated keywords) and skips greetings. Key points are grouped into questions to you, dates & numbers, and tasks & requests. Everything is verbatim from the transcript; nothing is generated.
+- The bundled whisper-cli binaries are stripped, so the APK gets noticeably smaller.

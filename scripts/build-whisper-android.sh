@@ -22,7 +22,7 @@ VARIANTS=(
 )
 
 STAMP_FILE="$WORK_DIR/stamp"
-STAMP="$WHISPER_COMMIT ${VARIANTS[*]} $ANDROID_PLATFORM"
+STAMP="$WHISPER_COMMIT ${VARIANTS[*]} $ANDROID_PLATFORM stripped"
 
 all_outputs_present() {
   for variant in "${VARIANTS[@]}"; do
@@ -37,6 +37,12 @@ fi
 
 if [ ! -f "$NDK_DIR/build/cmake/android.toolchain.cmake" ]; then
   echo "Android NDK not found at '$NDK_DIR'. Install the NDK version set as ndkVersion in app/build.gradle.kts." >&2
+  exit 1
+fi
+
+STRIP_TOOL="$(ls "$NDK_DIR"/toolchains/llvm/prebuilt/*/bin/llvm-strip 2>/dev/null | head -n 1)"
+if [ -z "$STRIP_TOOL" ]; then
+  echo "llvm-strip not found in the Android NDK at '$NDK_DIR'." >&2
   exit 1
 fi
 
@@ -74,7 +80,9 @@ for variant in "${VARIANTS[@]}"; do
     -DWHISPER_CURL=OFF
   cmake --build "$build" --target whisper-cli -j "$JOBS"
   install -D -m 0755 "$build/bin/whisper-cli" "$OUT_DIR/arm64-v8a/$name"
+  # Symbols are only useful for debugging and made each binary about 20 MB.
+  "$STRIP_TOOL" --strip-all "$OUT_DIR/arm64-v8a/$name"
 done
 
 echo "$STAMP" > "$STAMP_FILE"
-echo "Built whisper-cli $WHISPER_TAG for Android arm64-v8a: $(ls "$OUT_DIR/arm64-v8a" | tr '\n' ' ')"
+echo "Built whisper-cli $WHISPER_TAG for Android arm64-v8a: $(ls -l "$OUT_DIR/arm64-v8a" | awk 'NR>1 {print $9" "$5}' | tr '\n' ' ')"
