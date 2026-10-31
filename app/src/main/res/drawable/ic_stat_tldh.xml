@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the tl;dh mark (three bars ending in a dot), white on transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2,6.32a1.59,1.59 0,0 1,3.18 0v11.36a1.59,1.59 0,0 1,-3.18 0z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7.545,8.68a1.59,1.59 0,0 1,3.18 0v6.64a1.59,1.59 0,0 1,-3.18 0z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M13.09,11.135a1.59,1.59 0,0 1,3.18 0v1.73a1.59,1.59 0,0 1,-3.18 0z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18.36,12a1.82,1.82 0,1 0,3.64 0a1.82,1.82 0,1 0,-3.64 0z" />
+</vector>

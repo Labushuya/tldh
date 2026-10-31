@@ -6,9 +6,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import android.os.PersistableBundle
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import dev.bitsbots.tldh.updates.ApkInstaller
 import dev.bitsbots.tldh.updates.GitHubReleaseClient
 import dev.bitsbots.tldh.updates.StableReleaseSelector
@@ -16,6 +13,10 @@ import dev.bitsbots.tldh.updates.StableUpdate
 import dev.bitsbots.tldh.updates.UpdateDownloadGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -30,25 +31,33 @@ sealed interface UpdateUiState {
 }
 
 /**
- * Manual stable-release updater. Lives at app level so a running download survives leaving the
- * settings screen. Checks only run when the user taps, and downloads are SHA-256 verified.
+ * Manual stable-release updater. Owned by the engine, so a running download survives rotation and
+ * leaving the app. Checks only run when the user taps, and downloads are SHA-256 verified.
  */
 class UpdateController(
     private val context: Context,
     private val scope: CoroutineScope,
     private val appVersion: String,
-    private val repositorySlug: String
+    private val repositorySlug: String,
+    private val onDownloadStarted: () -> Unit
 ) {
-    var state by mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
-        private set
+    private val _state = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val state: StateFlow<UpdateUiState> = _state.asStateFlow()
+    private var downloadJob: Job? = null
+
+    private var current: UpdateUiState
+        get() = _state.value
+        set(value) {
+            _state.value = value
+        }
 
     val configured: Boolean = repositorySlug.contains('/')
 
     fun check() {
-        if (!configured || state == UpdateUiState.Checking) return
+        if (!configured || current == UpdateUiState.Checking) return
         scope.launch {
-            state = UpdateUiState.Checking
-            state = try {
+            current = UpdateUiState.Checking
+            current = try {
                 val releases = GitHubReleaseClient(repositorySlug).fetchStableReleases()
                 val update = StableReleaseSelector().select(appVersion, releases)
                 if (update == null) UpdateUiState.UpToDate else UpdateUiState.Available(update)
@@ -61,14 +70,17 @@ class UpdateController(
     }
 
     fun download(update: StableUpdate) {
-        scope.launch {
-            state = UpdateUiState.Downloading(update, 0f)
-            state = try {
+        if (current is UpdateUiState.Downloading) return
+        current = UpdateUiState.Downloading(update, 0f)
+        onDownloadStarted()
+        downloadJob = scope.launch {
+            current = try {
                 val file = UpdateDownloadGuard(context).runGuardedDownload {
                     GitHubReleaseClient(repositorySlug).downloadAsset(
                         asset = update.apk,
                         destinationDir = File(context.cacheDir, "updates"),
-                        progress = { progress -> scope.launch { state = UpdateUiState.Downloading(update, progress) } }
+                        // Called synchronously by the download loop, so it can't overtake the result.
+                        progress = { progress -> current = UpdateUiState.Downloading(update, progress) }
                     )
                 }
                 UpdateUiState.ReadyToInstall(update, file)
@@ -84,8 +96,15 @@ class UpdateController(
         context.startActivity(ApkInstaller(context).createInstallIntent(apkFile))
     }
 
+    fun cancelDownload() {
+        if (current is UpdateUiState.Downloading) {
+            downloadJob?.cancel()
+            current = UpdateUiState.Idle
+        }
+    }
+
     fun reset() {
-        state = UpdateUiState.Idle
+        current = UpdateUiState.Idle
     }
 }
 

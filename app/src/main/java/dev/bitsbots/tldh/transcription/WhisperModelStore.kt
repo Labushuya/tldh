@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import dev.bitsbots.tldh.updates.Checksum
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.File
@@ -70,6 +71,7 @@ class WhisperModelStore(context: Context) {
                     var total = 0L
                     var lastReported = -1
                     while (true) {
+                        ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
                         output.write(buffer, 0, read)

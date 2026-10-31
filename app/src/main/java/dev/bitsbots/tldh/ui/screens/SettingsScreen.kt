@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitsbots.tldh.analysis.ReplyTone
 import dev.bitsbots.tldh.transcription.WhisperModelSpec
 import dev.bitsbots.tldh.ui.ModelUiState
@@ -206,7 +207,8 @@ private fun UpdatesSection(updates: UpdateController, appVersion: String) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel("Updates")
         Group {
-            val state = updates.state
+            val updateState by updates.state.collectAsStateWithLifecycle()
+            val state = updateState
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -242,7 +244,7 @@ private fun UpdatesSection(updates: UpdateController, appVersion: String) {
             when (state) {
                 is UpdateUiState.Available -> Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Beim Download bleibt das Handy wach. Danach prüft tl;dh die Datei und öffnet den Android-Installer.",
+                        "Der Download läuft auch weiter, wenn du die App verlässt. Danach prüft tl;dh die Datei und öffnet den Android-Installer.",
                         style = TldhType.Caption,
                         color = TldhColors.TextMuted
                     )

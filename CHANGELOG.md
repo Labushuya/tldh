@@ -7,6 +7,19 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.1] - 2026-10-31
+
+### Fixed
+- Rotating the phone (or any other configuration change) no longer restarts a running voice note from the beginning or loses a result. Processing, model and update downloads now live outside the screen in an app-wide engine; the screen only shows its state.
+- Reopening tl;dh from recents no longer processes the last shared voice note again.
+- The display no longer has to stay on: v0.7.0 kept the screen awake during processing and downloads; that is removed.
+
+### Changed
+- Voice notes keep processing when you leave the app or turn the display off. While work runs, a silent progress notification (with "Abbrechen") keeps tl;dh alive; Android hides it for short jobs. When the summary is ready and you are elsewhere, tl;dh posts "Zusammenfassung fertig"; tapping it opens the result. Notifications never contain content of the voice note.
+- Android 13+ asks once for the notification permission, the first time background work starts. Without it, processing still continues; only the notifications are hidden.
+- Model and update downloads can be cancelled and continue in the background as well.
+
+
 ## [0.7.0] - 2026-10-31
 
 ### Added

@@ -79,14 +79,19 @@ fun ProcessingScreen(info: ProcessingInfo, onCancel: () -> Unit) {
                 )
                 Text(
                     when (info.stage) {
-                        ProcessingStage.Prepare -> "Audio wird vorbereitet. Bitte die App geöffnet lassen."
-                        ProcessingStage.Transcribe -> UiText.remainingText(info.remainingSeconds) + " Bitte die App geöffnet lassen."
+                        ProcessingStage.Prepare -> "Audio wird vorbereitet."
+                        ProcessingStage.Transcribe -> UiText.remainingText(info.remainingSeconds)
                         ProcessingStage.Summarize -> "Gleich fertig."
                     },
                     style = TldhType.Row.tabular(),
                     color = TldhColors.TextMuted
                 )
             }
+            Text(
+                "Du kannst die App verlassen oder das Display ausschalten. tl;dh arbeitet weiter und meldet sich, wenn alles fertig ist.",
+                style = TldhType.Small,
+                color = TldhColors.TextMuted
+            )
             ProgressWaveform(
                 levels = info.levels,
                 progress = when (info.stage) {
