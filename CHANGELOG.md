@@ -7,6 +7,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.6.0] - 2026-10-31
+
+### Added
+- Reply suggestions: rules detect what the voice note asks for (appointment request, request, yes/no question, open question, cancellation, thanks, plain info) and offer three replies (agree, decline or alternative, defer).
+- Three tones: kurz, freundlich, förmlich (Sie); the chosen tone is remembered.
+- Appointment replies reuse the time phrase from the transcript verbatim, e.g. "Passt, am Samstag um 17 Uhr bin ich dabei."
+- Tap a reply to copy it for pasting into WhatsApp; "Als Notiz kopieren" copies TL;DR, questions, dates & numbers and tasks as a note with date and duration.
+
+### Known limitations
+- Replies are templates: they do not quote the requested item ("die Getränke") and cover only the most important intent of a message.
+
+
 ## [0.5.0] - 2026-10-31
 
 ### Added

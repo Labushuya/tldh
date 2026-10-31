@@ -8,7 +8,7 @@
 
 Voice notes are too long. Your time is not. `tl;dh` is an Android Share Target that turns WhatsApp voice notes into a concise, copy-ready brief — locally, offline-first, session-only, and with a manual in-app update check.
 
-> **Status:** `v0.5.0` rule-based summary. Voice notes are transcribed on the device with `whisper.cpp`; tl;dh shows a verbatim TL;DR, questions, dates/numbers and requests, and flags uncertain words that could change the meaning (negations, times, numbers) with one-tap replay. Reply suggestions and note mode are next (`v0.6.0`).
+> **Status:** `v0.6.0` reply suggestions. Voice notes are transcribed on the device with `whisper.cpp`; tl;dh shows a verbatim TL;DR, questions, dates/numbers and requests, flags uncertain meaning-critical words with one-tap replay, and offers copy-ready replies in three tones plus a note mode. Next is an LLM benchmark in the STT bench for the optional on-device AI pack.
 
 ![CI](https://img.shields.io/github/actions/workflow/status/OWNER/tldh/ci.yml?branch=main&label=CI)
 ![Android](https://img.shields.io/badge/Android-local--first-A50B5E)
@@ -210,3 +210,10 @@ Duration warnings are now shown directly below the TL;DR and included in the cop
 - A "Prüfen" card lists uncertain words that can change what was said: negations, times and dates, numbers and amounts, conditions and modal verbs. Each entry shows its sentence and replays that moment with one tap.
 - The TL;DR picks the most informative sentences (questions, requests, dates, numbers, repeated keywords) and skips greetings. Key points are grouped into questions to you, dates & numbers, and tasks & requests. Everything is verbatim from the transcript; nothing is generated.
 - The bundled whisper-cli binaries are stripped, so the APK gets noticeably smaller.
+
+
+## v0.6.0 Reply suggestions and note mode
+
+- tl;dh recognizes what a voice note asks for (appointment, request, yes/no or open question, cancellation, thanks, info) and offers three replies: agree, decline or suggest an alternative, defer.
+- Tones: kurz, freundlich, förmlich (Sie). Appointment replies reuse the time phrase from the transcript, e.g. "Passt, am Samstag um 17 Uhr bin ich dabei."
+- Tap to copy, then paste into WhatsApp. "Als Notiz kopieren" turns the voice note into a short note with date and duration.

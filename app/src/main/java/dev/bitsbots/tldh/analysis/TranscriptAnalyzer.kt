@@ -10,7 +10,9 @@ data class TranscriptAnalysis(
     val datesAndNumbers: List<String>,
     val tasks: List<String>,
     /** Uncertain meaning-critical words, most uncertain first. */
-    val checks: List<CriticalFinding>
+    val checks: List<CriticalFinding>,
+    /** All sentences in transcript order, used by [ReplySuggester]. */
+    val sentences: List<String> = emptyList()
 )
 
 /**
@@ -71,7 +73,8 @@ object TranscriptAnalyzer {
             questions = questions.distinct().take(3),
             datesAndNumbers = dateAndNumberPhrases(words, findings).take(5),
             tasks = tasks.distinct().take(3),
-            checks = CriticalWordDetector.uncertain(findings)
+            checks = CriticalWordDetector.uncertain(findings),
+            sentences = sentences.map { it.text.trim() }
         )
     }
 
@@ -79,7 +82,7 @@ object TranscriptAnalyzer {
     fun analyze(transcript: String): TranscriptAnalysis =
         analyze(transcript.split(Regex("\\s+")).filter { it.isNotBlank() }.map { TranscriptWord(it, null, null, 1f) })
 
-    private fun isRequest(sentence: String): Boolean {
+    internal fun isRequest(sentence: String): Boolean {
         val normalized = " " + sentence.lowercase(Locale.GERMAN).replace(Regex("[^\\p{L}\\p{N} ]"), " ") + " "
         return requestPhrases.any { " $it " in normalized }
     }
