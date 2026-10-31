@@ -7,6 +7,16 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.2] - 2026-10-31
+
+### Fixed
+- Android 15: sharing a voice note crashed tl;dh right away (the app opened, then you were back in WhatsApp and tl;dh showed the empty start screen). The background service was started with the Android 15 type "media processing", which the AndroidX helper silently dropped; Android 15 rejects a service without type and ends the app. The type now goes straight to the platform.
+- If Android refuses the background service for any other reason, tl;dh no longer crashes; the voice note is processed anyway.
+
+### Added
+- Emulator smoke test in CI (Android 14, 15, 16): shares an audio file into the app, checks for crashes, the foreground service, leaving the app and rotation.
+
+
 ## [0.7.1] - 2026-10-31
 
 ### Fixed

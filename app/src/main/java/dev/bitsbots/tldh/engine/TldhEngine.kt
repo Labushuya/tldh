@@ -3,7 +3,6 @@ package dev.bitsbots.tldh.engine
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
-import androidx.core.content.ContextCompat
 import dev.bitsbots.tldh.BuildConfig
 import dev.bitsbots.tldh.audio.AudioIngestException
 import dev.bitsbots.tldh.audio.AudioIngestor
@@ -310,10 +309,11 @@ class TldhEngine private constructor(private val context: Context) {
     )
 
     private fun startWorkService() {
-        // Started right after a user action, so Android allows a foreground service here. If it
-        // still refuses (e.g. the app went to the background in between), the work simply runs
-        // without it, as before.
-        runCatching { ContextCompat.startForegroundService(context, Intent(context, TldhWorkService::class.java)) }
+        // A plain start (not startForegroundService): the service then promotes itself and, if
+        // Android refuses that, keeps running without crashing. startForegroundService would
+        // require startForeground() to succeed, or Android kills the app. Called right after a user
+        // action, while tl;dh is in the foreground, so starting the service is allowed.
+        runCatching { context.startService(Intent(context, TldhWorkService::class.java)) }
     }
 
     private fun workStatus(flow: TldhUiState, models: ModelUiState, update: UpdateUiState): WorkStatus? {
