@@ -55,4 +55,25 @@ class WhisperModelCatalogTest {
             assertEquals(64, spec.sha256.length)
         }
     }
+
+    @Test
+    fun whisperUsesTheFastCoresAsThreads() {
+        // Snapdragon 8 Gen 2: 1x X3 3.19 GHz, 2x A715 + 2x A710 2.8 GHz, 3x A510 2.0 GHz.
+        val gen2 = listOf(2016000L, 2016000L, 2016000L, 2803200L, 2803200L, 2803200L, 2803200L, 3187200L)
+        assertEquals(5, WhisperDecoding.threadsFor(gen2))
+        // Snapdragon 865: 1x 2.84 GHz, 3x 2.42 GHz, 4x 1.8 GHz.
+        val sd865 = listOf(1804800L, 1804800L, 1804800L, 1804800L, 2419200L, 2419200L, 2419200L, 2841600L)
+        assertEquals(4, WhisperDecoding.threadsFor(sd865))
+        // Eight similar cores (budget phones) are capped; unknown frequencies fall back to 4.
+        assertEquals(6, WhisperDecoding.threadsFor(List(8) { 1800000L }))
+        assertEquals(4, WhisperDecoding.threadsFor(emptyList()))
+        assertEquals(2, WhisperDecoding.threadsFor(listOf(3000000L, 1000000L, 1000000L)))
+    }
+
+    @Test
+    fun decodingIsGreedy() {
+        assertEquals(1, WhisperDecoding.BEAM_SIZE)
+        assertEquals(1, WhisperDecoding.BEST_OF)
+    }
 }
+

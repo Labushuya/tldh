@@ -7,6 +7,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.4] - 2026-10-31
+
+### Changed
+- Much faster transcription. whisper-cli ran with its defaults since 0.4.0: a 5-wide beam search, up to 5 candidates per retry on unclear passages and a fixed 4 threads. The STT bench, where Whisper felt fast, decoded greedily. tl;dh now decodes greedily too and uses as many threads as the phone has fast cores (e.g. 5 on a Snapdragon 8 Gen 2, at most 6).
+- Technical details of a result show threads and decoding mode.
+
+
 ## [0.7.3] - 2026-10-31
 
 ### Fixed

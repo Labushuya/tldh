@@ -14,6 +14,7 @@ import dev.bitsbots.tldh.transcription.PcmAudioPreparer
 import dev.bitsbots.tldh.transcription.TranscriptionOutcome
 import dev.bitsbots.tldh.transcription.TranscriptionStatus
 import dev.bitsbots.tldh.transcription.WhisperCliTranscriber
+import dev.bitsbots.tldh.transcription.WhisperDecoding
 import dev.bitsbots.tldh.transcription.WhisperModelCatalog
 import dev.bitsbots.tldh.transcription.WhisperModelSpec
 import dev.bitsbots.tldh.transcription.WhisperModelStore
@@ -68,6 +69,7 @@ class TldhEngine private constructor(private val context: Context) {
     private val deviceProfile = DeviceProfiler.read(context)
     private val runtime = WhisperRuntimeLocator.locate(context, deviceProfile.cpu)
     private val recommendedModel = WhisperModelCatalog.recommendedFor(deviceProfile)
+    private val whisperThreads = WhisperDecoding.threadsFor(deviceProfile.coreMaxFreqKhz)
 
     private val _flow = MutableStateFlow<TldhUiState>(TldhUiState.Idle)
     val flow: StateFlow<TldhUiState> = _flow.asStateFlow()
@@ -176,6 +178,7 @@ class TldhEngine private constructor(private val context: Context) {
             model = modelStore.modelFile(model),
             workDir = workDir,
             audioDurationMs = metadata.durationMs,
+            threads = whisperThreads,
             onSegment = { segment -> updateProcessing(token) { it.copy(liveText = (it.liveText + " " + segment).trim()) } }
         ) { progress ->
             val elapsed = SystemClock.elapsedRealtime() - transcribeStarted
@@ -188,7 +191,7 @@ class TldhEngine private constructor(private val context: Context) {
             transcript = run.transcript.takeIf { it.isNotBlank() },
             message = if (run.transcript.isBlank()) "Whisper hat in dieser Audio keine Sprache erkannt." else "Lokal transkribiert.",
             elapsedMs = run.elapsedMs,
-            modelName = "${model.displayName} (${model.qualityLabel}) · ${whisper.variant}",
+            modelName = "${model.displayName} (${model.qualityLabel}) · ${whisper.variant} · $whisperThreads Threads · greedy",
             words = run.words,
             pcmFile = prepared.file,
             sampleRate = prepared.sampleRate

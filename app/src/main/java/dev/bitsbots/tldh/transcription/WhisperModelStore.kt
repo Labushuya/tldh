@@ -21,8 +21,16 @@ object DeviceProfiler {
         return DeviceProfile(
             totalRamBytes = memoryInfo.totalMem,
             cpu = CpuFeatures.parse(cpuinfo),
-            arm64 = "arm64-v8a" in Build.SUPPORTED_ABIS
+            arm64 = "arm64-v8a" in Build.SUPPORTED_ABIS,
+            coreMaxFreqKhz = readCoreMaxFrequencies()
         )
+    }
+
+    private fun readCoreMaxFrequencies(): List<Long> {
+        val cores = File("/sys/devices/system/cpu").listFiles { file -> file.name.matches(Regex("cpu\\d+")) }.orEmpty()
+        return cores.mapNotNull { core ->
+            runCatching { File(core, "cpufreq/cpuinfo_max_freq").readText().trim().toLong() }.getOrNull()
+        }
     }
 }
 

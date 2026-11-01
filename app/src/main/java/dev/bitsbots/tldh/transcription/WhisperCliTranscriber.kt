@@ -47,6 +47,7 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
         model: File,
         workDir: File,
         audioDurationMs: Long?,
+        threads: Int = 4,
         onSegment: (String) -> Unit = {},
         onProgress: (Int) -> Unit
     ): WhisperRunResult = withContext(Dispatchers.IO) {
@@ -58,6 +59,9 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
             "-m", model.absolutePath,
             "-f", wav.absolutePath,
             "-l", "de",
+            "-t", threads.toString(),
+            "-bs", WhisperDecoding.BEAM_SIZE.toString(),
+            "-bo", WhisperDecoding.BEST_OF.toString(),
             "-ojf",
             "-otxt",
             "-of", outputBase.absolutePath,
