@@ -7,6 +7,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.5] - 2026-11-01
+
+### Changed
+- New processing animation, "long story, short" in motion: transcribed audio is squeezed into a dense glowing strip, so the waveform gets shorter as whisper advances. The 30-second window whisper is working on shimmers, a blinking line marks the position. When the transcript is done, the strip contracts into the tl;dh mark (three bars and a dot) before the result fades in. With animations turned off in Android (Bedienungshilfen → Animationen entfernen) the waveform changes without motion.
+
+
 ## [0.7.4] - 2026-10-31
 
 ### Changed

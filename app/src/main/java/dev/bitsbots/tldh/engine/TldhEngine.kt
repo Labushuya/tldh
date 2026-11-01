@@ -35,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -162,7 +163,7 @@ class TldhEngine private constructor(private val context: Context) {
         val prepareStarted = SystemClock.elapsedRealtime()
         val metadata = withContext(Dispatchers.IO) { AudioIngestor(context).inspect(pending.audio) }
         val subtitle = UiText.subtitle(pending.origin, metadata.displayName, metadata.durationMs)
-        updateProcessing(token) { it.copy(subtitle = subtitle) }
+        updateProcessing(token) { it.copy(subtitle = subtitle, durationMs = metadata.durationMs) }
 
         val prepared = PcmAudioPreparer(context, workDir).prepare(pending.audio.uri, metadata.durationMs)
         val levels = withContext(Dispatchers.IO) {
@@ -185,6 +186,7 @@ class TldhEngine private constructor(private val context: Context) {
             updateProcessing(token) { it.copy(progress = progress, remainingSeconds = UiText.estimateRemainingSeconds(progress, elapsed)) }
         }
         updateProcessing(token) { it.copy(stage = ProcessingStage.Summarize, progress = 100) }
+        val summarizeStarted = SystemClock.elapsedRealtime()
 
         val outcome = TranscriptionOutcome(
             status = if (run.transcript.isBlank()) TranscriptionStatus.FAILED else TranscriptionStatus.COMPLETED,
@@ -201,6 +203,9 @@ class TldhEngine private constructor(private val context: Context) {
             AudioOrigin.FILE -> "Audiodatei öffnen (ACTION_OPEN_DOCUMENT)"
         }
         val summary = withContext(Dispatchers.Default) { RuleBasedSummaryEngine().summarize(metadata, outcome, source) }
+        // Let the waveform finish contracting into the mark when someone is watching.
+        val remaining = FINISH_ANIMATION_MS - (SystemClock.elapsedRealtime() - summarizeStarted)
+        if (uiVisible && remaining > 0) delay(remaining)
         return TldhUiState.Result(
             summary = summary,
             transcription = outcome,
@@ -348,6 +353,7 @@ class TldhEngine private constructor(private val context: Context) {
         const val TOAST_SESSION_DELETED = "Session gelöscht. Audio und Transkript sind weg."
         const val TOAST_CANCELLED = "Abgebrochen. Nichts wurde gespeichert."
         private const val WAVEFORM_BARS = 72
+        private const val FINISH_ANIMATION_MS = 650L
 
         @Volatile
         private var instance: TldhEngine? = null

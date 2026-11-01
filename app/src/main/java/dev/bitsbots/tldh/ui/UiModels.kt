@@ -20,7 +20,8 @@ data class ProcessingInfo(
     val progress: Int = 0,
     val remainingSeconds: Int? = null,
     val levels: List<Float> = emptyList(),
-    val liveText: String = ""
+    val liveText: String = "",
+    val durationMs: Long? = null
 )
 
 sealed interface TldhUiState {

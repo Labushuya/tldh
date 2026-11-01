@@ -98,7 +98,9 @@ fun ProcessingScreen(info: ProcessingInfo, onCancel: () -> Unit) {
                     ProcessingStage.Prepare -> 0f
                     ProcessingStage.Transcribe -> info.progress / 100f
                     ProcessingStage.Summarize -> 1f
-                }
+                },
+                durationMs = info.durationMs,
+                finishing = info.stage == ProcessingStage.Summarize
             )
             Group(Modifier.padding(vertical = 0.dp)) {
                 StepRow(
