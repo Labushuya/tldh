@@ -11,6 +11,7 @@ import dev.bitsbots.tldh.session.SessionManager
 import dev.bitsbots.tldh.summarization.RuleBasedSummaryEngine
 import dev.bitsbots.tldh.transcription.DeviceProfiler
 import dev.bitsbots.tldh.transcription.PcmAudioPreparer
+import dev.bitsbots.tldh.transcription.RunDiagnostics
 import dev.bitsbots.tldh.transcription.TranscriptionOutcome
 import dev.bitsbots.tldh.transcription.TranscriptionStatus
 import dev.bitsbots.tldh.transcription.WhisperCliTranscriber
@@ -35,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,9 +46,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /** What the background service shows while work is running. */
 data class WorkStatus(
@@ -70,7 +74,12 @@ class TldhEngine private constructor(private val context: Context) {
     private val deviceProfile = DeviceProfiler.read(context)
     private val runtime = WhisperRuntimeLocator.locate(context, deviceProfile.cpu)
     private val recommendedModel = WhisperModelCatalog.recommendedFor(deviceProfile)
-    private val whisperThreads = WhisperDecoding.threadsFor(deviceProfile.coreMaxFreqKhz)
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** Threads for this phone's fast cores; the user can pick fewer for testing. */
+    val autoThreads: Int = WhisperDecoding.threadsFor(deviceProfile.coreMaxFreqKhz)
+    private val _threadChoice = MutableStateFlow(prefs.getInt(KEY_THREADS, WhisperDecoding.AUTO))
+    val threadChoice: StateFlow<Int> = _threadChoice.asStateFlow()
 
     private val _flow = MutableStateFlow<TldhUiState>(TldhUiState.Idle)
     val flow: StateFlow<TldhUiState> = _flow.asStateFlow()
@@ -172,18 +181,43 @@ class TldhEngine private constructor(private val context: Context) {
         val prepareMs = SystemClock.elapsedRealtime() - prepareStarted
         updateProcessing(token) { it.copy(stage = ProcessingStage.Transcribe, prepareMs = prepareMs, levels = levels, progress = 0) }
 
+        val threadChoice = _threadChoice.value
+        val threads = WhisperDecoding.resolveThreads(threadChoice, autoThreads)
         val transcribeStarted = SystemClock.elapsedRealtime()
-        val run = WhisperCliTranscriber(whisper).transcribe(
-            pcmFile = prepared.file,
-            sampleRate = prepared.sampleRate,
-            model = modelStore.modelFile(model),
-            workDir = workDir,
-            audioDurationMs = metadata.durationMs,
-            threads = whisperThreads,
-            onSegment = { segment -> updateProcessing(token) { it.copy(liveText = (it.liveText + " " + segment).trim()) } }
-        ) { progress ->
-            val elapsed = SystemClock.elapsedRealtime() - transcribeStarted
-            updateProcessing(token) { it.copy(progress = progress, remainingSeconds = UiText.estimateRemainingSeconds(progress, elapsed)) }
+        // Measures display/app state, cores and clock while whisper runs, so a slow run can be
+        // explained from the technical details instead of guessed at.
+        val probe = withContext(Dispatchers.IO) { PerformanceProbe(context) { uiVisible } }
+        val lastProgress = AtomicInteger(0)
+        val run = coroutineScope {
+            val sampler = launch(Dispatchers.IO) {
+                while (isActive) {
+                    probe.sample(lastProgress.get())
+                    delay(RunDiagnostics.SAMPLE_INTERVAL_MS)
+                }
+            }
+            try {
+                WhisperCliTranscriber(whisper).transcribe(
+                    pcmFile = prepared.file,
+                    sampleRate = prepared.sampleRate,
+                    model = modelStore.modelFile(model),
+                    workDir = workDir,
+                    audioDurationMs = metadata.durationMs,
+                    threads = threads,
+                    onStarted = { process -> probe.pid = PerformanceProbe.pidOf(process, whisper.executable) },
+                    onSegment = { segment -> updateProcessing(token) { it.copy(liveText = (it.liveText + " " + segment).trim()) } }
+                ) { progress ->
+                    lastProgress.set(progress)
+                    val elapsed = SystemClock.elapsedRealtime() - transcribeStarted
+                    updateProcessing(token) { it.copy(progress = progress, remainingSeconds = UiText.estimateRemainingSeconds(progress, elapsed)) }
+                }
+            } finally {
+                sampler.cancel()
+            }
+        }
+        val performance = withContext(Dispatchers.IO) {
+            probe.sample(100)
+            val pcmDurationMs = prepared.file.length() / 2 * 1000 / prepared.sampleRate
+            RunDiagnostics.describe(RunDiagnostics.summarize(probe.samples(), pcmDurationMs), probe.clusters)
         }
         updateProcessing(token) { it.copy(stage = ProcessingStage.Summarize, progress = 100) }
         val summarizeStarted = SystemClock.elapsedRealtime()
@@ -193,10 +227,12 @@ class TldhEngine private constructor(private val context: Context) {
             transcript = run.transcript.takeIf { it.isNotBlank() },
             message = if (run.transcript.isBlank()) "Whisper hat in dieser Audio keine Sprache erkannt." else "Lokal transkribiert.",
             elapsedMs = run.elapsedMs,
-            modelName = "${model.displayName} (${model.qualityLabel}) · ${whisper.variant} · $whisperThreads Threads · greedy",
+            modelName = "${model.displayName} (${model.qualityLabel}) · ${whisper.variant} · $threads Threads " +
+                (if (threadChoice == WhisperDecoding.AUTO || threads != threadChoice) "(automatisch)" else "(manuell)") + " · greedy",
             words = run.words,
             pcmFile = prepared.file,
-            sampleRate = prepared.sampleRate
+            sampleRate = prepared.sampleRate,
+            performance = performance
         )
         val source = when (pending.origin) {
             AudioOrigin.SHARE -> "Teilen (ACTION_SEND)"
@@ -247,6 +283,11 @@ class TldhEngine private constructor(private val context: Context) {
 
     fun consumeToast(message: String) {
         _toast.compareAndSet(message, null)
+    }
+
+    fun setThreadChoice(choice: Int) {
+        _threadChoice.value = choice
+        prefs.edit().putInt(KEY_THREADS, choice).apply()
     }
 
     fun activateModel(spec: WhisperModelSpec) {
@@ -354,6 +395,8 @@ class TldhEngine private constructor(private val context: Context) {
         const val TOAST_CANCELLED = "Abgebrochen. Nichts wurde gespeichert."
         private const val WAVEFORM_BARS = 72
         private const val FINISH_ANIMATION_MS = 650L
+        private const val PREFS = "tldh_settings"
+        private const val KEY_THREADS = "whisper_threads"
 
         @Volatile
         private var instance: TldhEngine? = null

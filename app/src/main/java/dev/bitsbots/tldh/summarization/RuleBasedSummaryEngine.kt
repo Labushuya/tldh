@@ -42,7 +42,7 @@ class RuleBasedSummaryEngine {
             "Transkription: ${transcription.engine}${transcription.modelName?.let { " · $it" } ?: ""}; ${transcription.status}" +
                 (transcription.elapsedMs?.let { "; %.1f s".format(java.util.Locale.GERMANY, it / 1000.0) } ?: ""),
             "Wörter: ${transcription.words.size}, davon unsicher: ${transcription.uncertainWords.size}"
-        )
+        ) + transcription.performance
 
         return AudioSummary(
             tldr = analysis?.tldr?.takeIf { it.isNotBlank() }

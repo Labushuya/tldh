@@ -7,6 +7,17 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 
+## [0.7.6] - 2026-11-06
+
+### Added
+- Measurements per run under "Technische Details": for "Display an, App offen", "Display an, App im Hintergrund" and "Display aus" tl;dh shows how long whisper ran, how fast (× real time), which cores its threads were on, which cores Android allowed and the current/maximum clock per core group. This shows on the phone why a run with the display off is slower, instead of guessing.
+- Threads can be chosen for testing under Einstellungen → Erkennung (Auto or up to two fewer). The technical details say whether the count was automatic or manual.
+- Hints only when something is in the way: if battery use is "restricted" (Android stops background work once the app is left) or notifications are off, the settings and the processing screen say so and open the right system page. No new permission, no battery-optimization exemption request.
+
+### Changed
+- The processing screen no longer promises a notification when notifications are off, and warns when leaving the app would stop the work.
+
+
 ## [0.7.5] - 2026-11-01
 
 ### Changed

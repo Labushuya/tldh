@@ -34,10 +34,14 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.bitsbots.tldh.ui.BackgroundCheck
+import dev.bitsbots.tldh.ui.BackgroundChecks
 import dev.bitsbots.tldh.ui.ProcessingInfo
 import dev.bitsbots.tldh.ui.ProcessingStage
 import dev.bitsbots.tldh.ui.UiText
+import dev.bitsbots.tldh.ui.components.GhostButton
 import dev.bitsbots.tldh.ui.components.GlassScaffold
 import dev.bitsbots.tldh.ui.components.Group
 import dev.bitsbots.tldh.ui.components.GroupDivider
@@ -54,7 +58,7 @@ import java.util.Locale
 private enum class StepState { Done, Active, Pending }
 
 @Composable
-fun ProcessingScreen(info: ProcessingInfo, onCancel: () -> Unit) {
+fun ProcessingScreen(info: ProcessingInfo, background: BackgroundCheck, onCancel: () -> Unit) {
     GlassScaffold(
         topBar = { ScreenTitleBar(icon = TldhIcons.Close, iconDescription = "Abbrechen", title = info.title, subtitle = info.subtitle, onIcon = onCancel) },
         bottomBar = {
@@ -87,11 +91,7 @@ fun ProcessingScreen(info: ProcessingInfo, onCancel: () -> Unit) {
                     color = TldhColors.TextMuted
                 )
             }
-            Text(
-                "Du kannst die App verlassen oder das Display ausschalten. tl;dh arbeitet weiter und meldet sich, wenn alles fertig ist.",
-                style = TldhType.Small,
-                color = TldhColors.TextMuted
-            )
+            BackgroundNote(background)
             ProgressWaveform(
                 levels = info.levels,
                 progress = when (info.stage) {
@@ -134,6 +134,38 @@ fun ProcessingScreen(info: ProcessingInfo, onCancel: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** Says honestly what happens when the user leaves, and offers the fix when Android is in the way. */
+@Composable
+private fun BackgroundNote(background: BackgroundCheck) {
+    val context = LocalContext.current
+    when {
+        background.restricted -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                Icon(TldhIcons.Warning, contentDescription = null, tint = TldhColors.Danger, modifier = Modifier.size(20.dp))
+                Text(
+                    "Android schränkt tl;dh im Hintergrund ein. Verlässt du die App, kann die Verarbeitung stoppen.",
+                    style = TldhType.Small,
+                    color = TldhColors.Text
+                )
+            }
+            GhostButton(text = "In der App-Info unter Akku ändern", onClick = { BackgroundChecks.openAppInfo(context) }, contentColor = TldhColors.Text)
+        }
+        background.notificationsOff -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "Du kannst die App verlassen oder das Display ausschalten. tl;dh arbeitet weiter, kann aber nicht melden, wann es fertig ist: Benachrichtigungen sind aus.",
+                style = TldhType.Small,
+                color = TldhColors.TextMuted
+            )
+            GhostButton(text = "Benachrichtigungen erlauben", onClick = { BackgroundChecks.openNotificationSettings(context) }, contentColor = TldhColors.Text)
+        }
+        else -> Text(
+            "Du kannst die App verlassen oder das Display ausschalten. tl;dh arbeitet weiter und meldet sich, wenn alles fertig ist.",
+            style = TldhType.Small,
+            color = TldhColors.TextMuted
+        )
     }
 }
 

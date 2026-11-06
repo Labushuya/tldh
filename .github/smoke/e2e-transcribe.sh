@@ -30,6 +30,13 @@ tap_text() {
   set -- $b
   if [ $# -eq 4 ]; then adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 )); echo "tapped"; else echo "not found"; fi
 }
+tap_desc() {
+  local b
+  b=$(dump | tr '>' '\n' | grep -F "content-desc=\"$1\"" | head -1 | grep -o 'bounds="[^"]*"' | grep -o '[0-9]\+' | tr '\n' ' ')
+  # shellcheck disable=SC2086
+  set -- $b
+  if [ $# -eq 4 ]; then adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 )); echo "tapped"; else echo "not found"; fi
+}
 alive() { adb shell pidof "$PKG" >/dev/null 2>&1 && echo "process alive (pid $(adb shell pidof "$PKG"))" || echo "PROCESS NOT RUNNING"; }
 fg() { adb shell dumpsys activity services "$PKG" | grep -m1 -o "isForeground=[a-z]* foregroundId=[0-9]* types=[0-9a-fx]*" || echo "service not running"; }
 shot() { echo "== $1 =="; alive; fg; echo "screen: $(screen_text)"; }
@@ -78,8 +85,37 @@ if [ "$RESULT" = ok ]; then
   echo "tone -> $(tap_text "förmlich")"; sleep 1
   for i in 1 2 3; do adb shell input swipe 160 520 160 140 350; sleep 1; done
   shot "after interacting with the result"
+  # The run's measurements: speed per display/app state, cores, CPU group and clock.
+  for i in $(seq 1 20); do
+    case "$(screen_text)" in *"Technische Details"*) break ;; esac
+    adb shell input swipe 160 520 160 140 350; sleep 1
+  done
+  echo "details -> $(tap_text "Technische Details")"; sleep 2
+  for i in 1 2 3 4; do adb shell input swipe 160 520 160 140 350; sleep 1; done
+  details=$(screen_text)
+  echo "measurements: $(echo "$details" | grep -o '"· [^"]*Echtzeit[^"]*"' | tr '\n' ' ')"
+  case "$details" in
+    *"Display aus:"*Echtzeit*Kerne*) DIAG=ok ;;
+    *Echtzeit*) DIAG=partial ;;
+    *) DIAG=missing ;;
+  esac
+  echo "measurements: $DIAG"
   echo "close -> $(tap_text "Session löschen")"; sleep 3
+  case "$(screen_text)" in *"Audiodatei öffnen"*) ;; *) echo "close via back"; adb shell input keyevent KEYCODE_BACK; sleep 3 ;; esac
   shot "after closing"
+
+  # Battery use "restricted": the settings show a hint, and it goes away once allowed again.
+  adb shell cmd appops set "$PKG" RUN_ANY_IN_BACKGROUND ignore
+  adb shell input keyevent KEYCODE_HOME; sleep 2
+  adb shell am start -W -n "$PKG/dev.bitsbots.tldh.MainActivity" >/dev/null; sleep 3
+  echo "settings -> $(tap_desc "Einstellungen")"; sleep 3
+  case "$(screen_text)" in *"Hintergrundnutzung eingeschränkt"*) RESTRICTED_HINT=shown ;; *) RESTRICTED_HINT=missing ;; esac
+  adb shell cmd appops set "$PKG" RUN_ANY_IN_BACKGROUND allow
+  adb shell input keyevent KEYCODE_HOME; sleep 2
+  adb shell am start -W -n "$PKG/dev.bitsbots.tldh.MainActivity" >/dev/null; sleep 3
+  case "$(screen_text)" in *"Hintergrundnutzung eingeschränkt"*) RESTRICTED_CLEARED=no ;; *) RESTRICTED_CLEARED=yes ;; esac
+  echo "restricted hint: $RESTRICTED_HINT, cleared after allowing: $RESTRICTED_CLEARED"
+  shot "settings after allowing background use"
 fi
 
 adb logcat -d > "$OUT/logcat.txt"
@@ -91,6 +127,10 @@ grep -nE "TldhWorkService|whisper-cli|libwhisper" "$OUT/logcat.txt" | head -20
 
 if grep -qE "FATAL EXCEPTION|ANR in $PKG|Fatal signal" "$OUT/logcat.txt" || [ "$RESULT" != ok ]; then
   echo "E2E RESULT: FAILED ($RESULT)"
+  exit 1
+fi
+if [ "${DIAG:-missing}" != ok ] || [ "${RESTRICTED_HINT:-missing}" != shown ] || [ "${RESTRICTED_CLEARED:-no}" != yes ]; then
+  echo "E2E RESULT: FAILED (measurements: ${DIAG:-missing}, restricted hint: ${RESTRICTED_HINT:-missing}, cleared: ${RESTRICTED_CLEARED:-no})"
   exit 1
 fi
 echo "E2E RESULT: result shown, no crash"

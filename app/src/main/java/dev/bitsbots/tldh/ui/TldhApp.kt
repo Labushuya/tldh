@@ -107,7 +107,13 @@ fun TldhApp(
     }
 
     // Android 13+: ask once, when background work first starts, so tl;dh can say when it's done.
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // Hints about notifications only appear once the user has answered.
+    var notificationsAsked by remember { mutableStateOf(prefs.getBoolean(KEY_ASKED_NOTIFICATIONS, false)) }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationsAsked = true
+    }
+    val background = rememberBackgroundCheck(notificationsAsked)
+    val threadChoice by engine.threadChoice.collectAsStateWithLifecycle()
     val working = flow is TldhUiState.Processing || models.download != null
     LaunchedEffect(working) {
         if (working &&
@@ -174,6 +180,10 @@ fun TldhApp(
                 models = models,
                 onSelectModel = { spec -> if (spec in models.installed) engine.activateModel(spec) else engine.downloadModel(spec) },
                 onDeleteModels = { engine.deleteModels() },
+                autoThreads = engine.autoThreads,
+                threadChoice = threadChoice,
+                onThreadChoice = { engine.setThreadChoice(it) },
+                background = background,
                 tone = tone,
                 onToneChange = { changeTone(it) },
                 markUncertain = markUncertain,
@@ -203,6 +213,7 @@ fun TldhApp(
                 )
                 is TldhUiState.Processing -> ProcessingScreen(
                     info = state.info,
+                    background = background,
                     onCancel = { engine.endSession(TldhEngine.TOAST_CANCELLED) }
                 )
                 is TldhUiState.Result -> ResultScreen(

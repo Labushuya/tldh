@@ -69,6 +69,17 @@ object WhisperDecoding {
         return fastCores.coerceIn(MIN_THREADS, MAX_THREADS)
     }
 
+    /** Stored choice for "automatic"; any other value is a fixed thread count for testing. */
+    const val AUTO = 0
+
+    /** Automatic plus up to two lower counts: fewer threads can be faster when Android hides cores. */
+    fun threadOptions(auto: Int): List<Int> =
+        listOf(AUTO) + (auto - 1 downTo auto - 2).filter { it >= MIN_THREADS }
+
+    /** The thread count for a run; a stored count that is no longer offered falls back to automatic. */
+    fun resolveThreads(choice: Int, auto: Int): Int =
+        if (choice != AUTO && choice in threadOptions(auto)) choice else auto
+
     private const val DEFAULT_THREADS = 4
     private const val MIN_THREADS = 2
     private const val MAX_THREADS = 6

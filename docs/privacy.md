@@ -49,6 +49,10 @@ Transcription and downloads run in an app-wide engine. While something is runnin
 
 When a summary finishes while tl;dh is not visible, it posts a "Zusammenfassung fertig" notification. Notifications contain only generic text, never words from the voice note. On Android 13+ the notification permission is requested once, when background work first starts; if it is denied, work still continues without visible notifications.
 
+While whisper runs, tl;dh notes every 2 seconds whether the display is on, whether the app is visible, which CPU cores whisper's threads use and how fast the core clusters clock. It reads only its own process entries in `/proc` and the public cpufreq values, needs no permission and records nothing about other apps. The numbers are shown under "Technische Details" of the result and are deleted with the session; nothing is sent anywhere.
+
+If battery use is set to "restricted" or notifications are off, the settings and the processing screen say so and link to the system page where it can be changed. tl;dh does not ask for an exemption from battery optimization.
+
 ## Clipboard
 
 When users tap Copy, Android owns the clipboard content. The app cannot guarantee clipboard lifetime or visibility behavior across all Android versions and OEM skins.

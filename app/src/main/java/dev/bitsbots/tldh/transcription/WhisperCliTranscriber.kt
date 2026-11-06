@@ -48,6 +48,7 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
         workDir: File,
         audioDurationMs: Long?,
         threads: Int = 4,
+        onStarted: (Process) -> Unit = {},
         onSegment: (String) -> Unit = {},
         onProgress: (Int) -> Unit
     ): WhisperRunResult = withContext(Dispatchers.IO) {
@@ -70,6 +71,7 @@ class WhisperCliTranscriber(private val runtime: WhisperRuntime) {
         val process = ProcessBuilder(command)
             .directory(workDir)
             .start()
+        runCatching { onStarted(process) }
         // whisper-cli prints each finished segment to stdout (flushed), so the UI can show the
         // first recognized sentences while the rest is still being transcribed.
         val stdoutReader = thread(name = "whisper-cli-stdout", isDaemon = true) {

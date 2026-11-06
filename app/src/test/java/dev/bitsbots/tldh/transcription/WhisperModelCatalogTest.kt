@@ -71,6 +71,19 @@ class WhisperModelCatalogTest {
     }
 
     @Test
+    fun threadChoiceOffersAutoAndTwoLowerCounts() {
+        assertEquals(listOf(WhisperDecoding.AUTO, 4, 3), WhisperDecoding.threadOptions(5))
+        assertEquals(listOf(WhisperDecoding.AUTO, 3, 2), WhisperDecoding.threadOptions(4))
+        assertEquals(listOf(WhisperDecoding.AUTO), WhisperDecoding.threadOptions(2))
+        assertEquals(5, WhisperDecoding.resolveThreads(WhisperDecoding.AUTO, 5))
+        assertEquals(4, WhisperDecoding.resolveThreads(4, 5))
+        // A count stored on another phone or version that isn't offered here falls back to automatic.
+        assertEquals(5, WhisperDecoding.resolveThreads(6, 5))
+        assertEquals(2, WhisperDecoding.resolveThreads(2, 4))
+        assertEquals(4, WhisperDecoding.resolveThreads(1, 4))
+    }
+
+    @Test
     fun decodingIsGreedy() {
         assertEquals(1, WhisperDecoding.BEAM_SIZE)
         assertEquals(1, WhisperDecoding.BEST_OF)

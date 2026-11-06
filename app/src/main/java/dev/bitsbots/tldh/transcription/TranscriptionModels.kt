@@ -19,7 +19,9 @@ data class TranscriptionOutcome(
     val words: List<TranscriptWord> = emptyList(),
     /** Prepared 16 kHz mono PCM16 of this session, kept until the session wipe for snippet playback. */
     val pcmFile: File? = null,
-    val sampleRate: Int = 16_000
+    val sampleRate: Int = 16_000,
+    /** Speed, cores and clock per display/app state while whisper ran, for the technical details. */
+    val performance: List<String> = emptyList()
 ) {
     val hasTranscript: Boolean = status == TranscriptionStatus.COMPLETED && !transcript.isNullOrBlank()
     val uncertainWords: List<TranscriptWord> get() = words.filter { it.confidence != ConfidenceLevel.SICHER }

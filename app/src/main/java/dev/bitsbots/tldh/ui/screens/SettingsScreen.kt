@@ -29,7 +29,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitsbots.tldh.analysis.ReplyTone
+import dev.bitsbots.tldh.transcription.WhisperDecoding
 import dev.bitsbots.tldh.transcription.WhisperModelSpec
+import dev.bitsbots.tldh.ui.BackgroundCheck
+import dev.bitsbots.tldh.ui.BackgroundChecks
 import dev.bitsbots.tldh.ui.ModelUiState
 import dev.bitsbots.tldh.ui.UpdateController
 import dev.bitsbots.tldh.ui.UpdateUiState
@@ -61,6 +64,10 @@ fun SettingsScreen(
     models: ModelUiState,
     onSelectModel: (WhisperModelSpec) -> Unit,
     onDeleteModels: () -> Unit,
+    autoThreads: Int,
+    threadChoice: Int,
+    onThreadChoice: (Int) -> Unit,
+    background: BackgroundCheck,
     tone: ReplyTone,
     onToneChange: (ReplyTone) -> Unit,
     markUncertain: Boolean,
@@ -81,7 +88,8 @@ fun SettingsScreen(
             modifier = Modifier.padding(top = 8.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            RecognitionSection(models, onSelectModel, onDeleteRequest = { confirmDelete = true })
+            if (!background.ok) BackgroundSection(background)
+            RecognitionSection(models, onSelectModel, onDeleteRequest = { confirmDelete = true }, autoThreads, threadChoice, onThreadChoice)
             RepliesSettings(tone, onToneChange, markUncertain, onMarkUncertainChange)
             if (updates != null) UpdatesSection(updates, appVersion)
             PrivacySection()
@@ -110,7 +118,14 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun RecognitionSection(models: ModelUiState, onSelectModel: (WhisperModelSpec) -> Unit, onDeleteRequest: () -> Unit) {
+private fun RecognitionSection(
+    models: ModelUiState,
+    onSelectModel: (WhisperModelSpec) -> Unit,
+    onDeleteRequest: () -> Unit,
+    autoThreads: Int,
+    threadChoice: Int,
+    onThreadChoice: (Int) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel("Erkennung")
         Group {
@@ -134,6 +149,8 @@ private fun RecognitionSection(models: ModelUiState, onSelectModel: (WhisperMode
                         }
                     }
                 )
+                GroupDivider(inset = 0.dp)
+                ThreadChoice(autoThreads, threadChoice, onThreadChoice)
                 GroupDivider(inset = 0.dp)
                 Row(
                     modifier = Modifier
@@ -170,6 +187,61 @@ private fun RecognitionSection(models: ModelUiState, onSelectModel: (WhisperMode
             color = TldhColors.TextMuted,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
+    }
+}
+
+/** For testing on the phone: fewer threads can be faster when Android hides fast cores in the background. */
+@Composable
+private fun ThreadChoice(autoThreads: Int, threadChoice: Int, onThreadChoice: (Int) -> Unit) {
+    val options = WhisperDecoding.threadOptions(autoThreads)
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Threads", style = TldhType.Body)
+        SegmentedControl(
+            options = options,
+            selected = if (threadChoice in options) threadChoice else WhisperDecoding.AUTO,
+            label = { if (it == WhisperDecoding.AUTO) "Auto ($autoThreads)" else "$it" },
+            onSelect = onThreadChoice
+        )
+        Text(
+            "Zum Testen. Mit weniger Threads kann tl;dh im Hintergrund schneller sein. Tempo, Kerne und Takt stehen nach jeder Sprachnachricht unter „Technische Details“.",
+            style = TldhType.Small,
+            color = TldhColors.TextMuted
+        )
+    }
+}
+
+/** Shown only when something stops tl;dh from working in the background. */
+@Composable
+private fun BackgroundSection(background: BackgroundCheck) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Im Hintergrund")
+        Group {
+            if (background.restricted) {
+                IconRow(
+                    icon = TldhIcons.Warning,
+                    iconTint = TldhColors.Danger,
+                    title = "Hintergrundnutzung eingeschränkt",
+                    subtitle = "Verlässt du die App, kann die Verarbeitung stoppen. Tippen und in der App-Info unter Akku ändern.",
+                    onClick = { BackgroundChecks.openAppInfo(context) },
+                    trailing = { Icon(TldhIcons.External, contentDescription = null, tint = TldhColors.TextMuted, modifier = Modifier.size(20.dp)) }
+                )
+            }
+            if (background.restricted && background.notificationsOff) GroupDivider()
+            if (background.notificationsOff) {
+                IconRow(
+                    icon = TldhIcons.Warning,
+                    iconTint = TldhColors.Danger,
+                    title = "Benachrichtigungen aus",
+                    subtitle = "tl;dh kann nicht melden, wenn eine Sprachnachricht fertig ist. Tippen, um sie zu erlauben.",
+                    onClick = { BackgroundChecks.openNotificationSettings(context) },
+                    trailing = { Icon(TldhIcons.External, contentDescription = null, tint = TldhColors.TextMuted, modifier = Modifier.size(20.dp)) }
+                )
+            }
+        }
     }
 }
 
