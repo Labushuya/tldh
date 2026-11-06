@@ -22,8 +22,10 @@ data class PerfSample(
     val threadCpus: List<Int> = emptyList(),
     /** Cores the process may use, as the kernel lists them ("0-6"). */
     val allowedCpus: String? = null,
-    /** Android's CPU group for the process, e.g. "/top-app" or "/foreground". */
+    /** Android's CPU group for the whisper process, e.g. "/top-app" or "/foreground". */
     val cpuset: String? = null,
+    /** The same for tl;dh itself; a child process keeps the group it was started in. */
+    val appCpuset: String? = null,
     /** Current clock per cluster, same order as the clusters. */
     val clusterKhz: List<Long?> = emptyList()
 )
@@ -35,6 +37,7 @@ data class PhaseStats(
     val cores: List<Int>,
     val allowedCpus: String?,
     val cpuset: String?,
+    val appCpuset: String? = null,
     /** Median clock per cluster while in this phase. */
     val clusterKhz: List<Long?>
 ) {
@@ -44,9 +47,10 @@ data class PhaseStats(
 
 /**
  * Turns the samples of one run into per-phase numbers. Time between two samples counts for the
- * phase of the earlier one; audio progress in that time is credited to the same phase. whisper
- * reports progress per 30 s window, so short phases are rough. A pause longer than [GAP_MS]
- * between two samples means tl;dh itself did not get to run; that time counts for no phase.
+ * phase of the earlier one. whisper reports progress only when a 30 s window is done, so each
+ * progress step is spread over the time since the previous step, in proportion to how long each
+ * phase lasted in it. A pause longer than [GAP_MS] between two samples means tl;dh itself did not
+ * get to run; that time counts for no phase.
  */
 object RunDiagnostics {
     const val SAMPLE_INTERVAL_MS = 2_000L
@@ -54,16 +58,31 @@ object RunDiagnostics {
     private const val MIN_PHASE_MS = 3_000L
     private const val MIN_CORE_SHARE = 0.05
 
+    /** Below 100 MHz a cpufreq reading is not real (emulators report 1 kHz). */
+    const val MIN_REAL_KHZ = 100_000L
+
     fun summarize(samples: List<PerfSample>, audioDurationMs: Long): List<PhaseStats> {
         if (samples.size < 2 || audioDurationMs <= 0) return emptyList()
         val wall = mutableMapOf<RunPhase, Long>()
-        val audio = mutableMapOf<RunPhase, Long>()
+        val audio = mutableMapOf<RunPhase, Double>()
+        // Intervals since the last progress step; null phase = measuring gap.
+        val pending = mutableListOf<Pair<RunPhase?, Long>>()
         samples.zipWithNext().forEach { (a, b) ->
             val dt = (b.atMs - a.atMs).coerceAtLeast(0)
-            if (dt > GAP_MS) return@forEach
-            val dp = (b.progress - a.progress).coerceAtLeast(0)
-            wall[a.phase] = (wall[a.phase] ?: 0) + dt
-            audio[a.phase] = (audio[a.phase] ?: 0) + dp * audioDurationMs / 100
+            val gap = dt > GAP_MS
+            if (!gap) wall[a.phase] = (wall[a.phase] ?: 0) + dt
+            pending += (if (gap) null else a.phase) to dt
+            val dp = b.progress - a.progress
+            if (dp > 0) {
+                val step = dp * audioDurationMs / 100.0
+                val span = pending.sumOf { it.second }
+                if (span > 0) {
+                    pending.forEach { (phase, t) -> if (phase != null) audio[phase] = (audio[phase] ?: 0.0) + step * t / span }
+                } else if (!gap) {
+                    audio[a.phase] = (audio[a.phase] ?: 0.0) + step
+                }
+                pending.clear()
+            }
         }
         return RunPhase.entries.mapNotNull { phase ->
             val wallMs = wall[phase] ?: 0
@@ -72,10 +91,11 @@ object RunDiagnostics {
             PhaseStats(
                 phase = phase,
                 wallMs = wallMs,
-                audioMs = audio[phase] ?: 0,
+                audioMs = Math.round(audio[phase] ?: 0.0),
                 cores = usedCores(inPhase),
                 allowedCpus = mostCommon(inPhase.mapNotNull { it.allowedCpus }),
                 cpuset = mostCommon(inPhase.mapNotNull { it.cpuset }),
+                appCpuset = mostCommon(inPhase.mapNotNull { it.appCpuset }),
                 clusterKhz = medianPerCluster(inPhase)
             )
         }
@@ -91,7 +111,11 @@ object RunDiagnostics {
         buildList {
             add("${s.phase.label}: ${"%.0f".format(Locale.GERMANY, s.wallMs / 1000.0)} s, $speed")
             if (s.cores.isNotEmpty()) add("Kerne ${ranges(s.cores)}")
-            val group = listOfNotNull(s.allowedCpus?.let { "erlaubt $it" }, s.cpuset?.trim('/')?.takeIf { it.isNotBlank() })
+            val group = listOfNotNull(
+                s.allowedCpus?.let { "erlaubt $it" },
+                s.cpuset?.trim('/')?.takeIf { it.isNotBlank() }?.let { "whisper $it" },
+                s.appCpuset?.trim('/')?.takeIf { it.isNotBlank() }?.let { "App $it" }
+            )
             if (group.isNotEmpty()) add(group.joinToString(", "))
             clock(s.clusterKhz, clusters)?.let { add("Takt aktuell/max GHz: $it") }
         }.joinToString(" · ")
@@ -130,8 +154,8 @@ object RunDiagnostics {
     /** Clusters without a real clock reading (e.g. emulators report 0) are left out. */
     private fun clock(khz: List<Long?>, clusters: List<CpuCluster>): String? {
         val parts = clusters.mapIndexedNotNull { i, cluster ->
-            val current = khz.getOrNull(i)?.takeIf { it > 0 } ?: return@mapIndexedNotNull null
-            if (cluster.maxKhz <= 0) return@mapIndexedNotNull null
+            val current = khz.getOrNull(i)?.takeIf { it >= MIN_REAL_KHZ } ?: return@mapIndexedNotNull null
+            if (cluster.maxKhz < MIN_REAL_KHZ) return@mapIndexedNotNull null
             "${ranges(cluster.cpus)} ${ghz(current)}/${ghz(cluster.maxKhz)}"
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(", ")

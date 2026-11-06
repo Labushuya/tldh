@@ -209,6 +209,8 @@ class TldhEngine private constructor(private val context: Context) {
                 ) { progress ->
                     if (BuildConfig.DEBUG) Log.d(PerformanceProbe.TAG, "t=${SystemClock.elapsedRealtime()} whisper progress $progress")
                     lastProgress.set(progress)
+                    // A sample right at the step, so the window's time is known exactly.
+                    probe.sample(progress)
                     val elapsed = SystemClock.elapsedRealtime() - transcribeStarted
                     updateProcessing(token) { it.copy(progress = progress, remainingSeconds = UiText.estimateRemainingSeconds(progress, elapsed)) }
                 }

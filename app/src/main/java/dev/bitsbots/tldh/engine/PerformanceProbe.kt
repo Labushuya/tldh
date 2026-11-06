@@ -8,6 +8,7 @@ import dev.bitsbots.tldh.BuildConfig
 import dev.bitsbots.tldh.transcription.CpuCluster
 import dev.bitsbots.tldh.transcription.PerfSample
 import dev.bitsbots.tldh.transcription.ProcStat
+import dev.bitsbots.tldh.transcription.RunDiagnostics
 import dev.bitsbots.tldh.transcription.RunPhase
 import java.io.File
 
@@ -35,11 +36,12 @@ class PerformanceProbe(context: Context, private val isVisible: () -> Boolean) {
             threadCpus = pid?.let { threadCpus(it) }.orEmpty(),
             allowedCpus = pid?.let { status(it, "Cpus_allowed_list") },
             cpuset = pid?.let { readLine(File("/proc/$it/cpuset")) },
+            appCpuset = readLine(File("/proc/self/cpuset")),
             clusterKhz = clusters.map { readLong(File("/sys/devices/system/cpu/cpu${it.cpus.first()}/cpufreq/scaling_cur_freq")) }
         )
         samples += sample
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "t=${sample.atMs} ${sample.phase} p=$progress pid=$pid cpus=${sample.threadCpus} allowed=${sample.allowedCpus} cpuset=${sample.cpuset} khz=${sample.clusterKhz} own=${readLine(File("/proc/self/cpuset"))}")
+            Log.d(TAG, "t=${sample.atMs} ${sample.phase} p=$progress pid=$pid cpus=${sample.threadCpus} allowed=${sample.allowedCpus} cpuset=${sample.cpuset} khz=${sample.clusterKhz} app=${sample.appCpuset}")
         }
     }
 
@@ -89,7 +91,7 @@ class PerformanceProbe(context: Context, private val isVisible: () -> Boolean) {
                 val related = readLine(File(dir, "related_cpus"))
                     ?.split(Regex("\\s+"))?.mapNotNull { it.toIntOrNull() }?.sorted()
                     ?.takeIf { it.isNotEmpty() } ?: listOf(cpu)
-                val max = readLong(File(dir, "cpuinfo_max_freq"))?.takeIf { it > 0 } ?: return@mapNotNull null
+                val max = readLong(File(dir, "cpuinfo_max_freq"))?.takeIf { it >= RunDiagnostics.MIN_REAL_KHZ } ?: return@mapNotNull null
                 seen += related
                 CpuCluster(related, max)
             }

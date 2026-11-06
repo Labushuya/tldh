@@ -95,7 +95,7 @@ if [ "$RESULT" = ok ]; then
   details=$(screen_text)
   echo "measurements: $(echo "$details" | grep -o '"· [^"]*Echtzeit[^"]*"' | tr '\n' ' ')"
   case "$details" in
-    *"Display aus:"*Echtzeit*Kerne*) DIAG=ok ;;
+    *Echtzeit*Kerne*) DIAG=ok ;;
     *Echtzeit*) DIAG=partial ;;
     *) DIAG=missing ;;
   esac

@@ -10,7 +10,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [0.7.6] - 2026-11-06
 
 ### Added
-- Measurements per run under "Technische Details": for "Display an, App offen", "Display an, App im Hintergrund" and "Display aus" tl;dh shows how long whisper ran, how fast (× real time), which cores its threads were on, which cores Android allowed and the current/maximum clock per core group. This shows on the phone why a run with the display off is slower, instead of guessing.
+- Measurements per run under "Technische Details": for "Display an, App offen", "Display an, App im Hintergrund" and "Display aus" tl;dh shows how long whisper ran, how fast (× real time), which cores its threads were on, which cores Android allowed, which CPU group whisper and tl;dh itself are in, and the current/maximum clock per core group. Progress is credited to the time whisper actually worked on each 30-second window, and pauses in which tl;dh itself could not measure are shown as a gap instead of being counted for a state. This shows on the phone why a run with the display off is slower, instead of guessing.
 - Threads can be chosen for testing under Einstellungen → Erkennung (Auto or up to two fewer). The technical details say whether the count was automatic or manual.
 - Hints only when something is in the way: if battery use is "restricted" (Android stops background work once the app is left) or notifications are off, the settings and the processing screen say so and open the right system page. No new permission, no battery-optimization exemption request.
 

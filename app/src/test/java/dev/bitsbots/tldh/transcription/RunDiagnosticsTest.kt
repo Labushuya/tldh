@@ -37,6 +37,7 @@ class RunDiagnosticsTest {
                 threadCpus = listOf(0, 3, 4, 5, 6),
                 allowedCpus = "0-6",
                 cpuset = "/foreground",
+                appCpuset = "/background",
                 clusterKhz = listOf(1_100_000, 1_600_000, if (t % 2 == 0) null else 800_000)
             )
         }
@@ -73,9 +74,10 @@ class RunDiagnosticsTest {
         assertEquals(2, lines.size)
         assertTrue(lines[0], lines[0].startsWith("Display an, App offen: 62 s, 3,"))
         assertTrue(lines[0], "Kerne 3–7" in lines[0])
+        assertTrue(lines[0], "erlaubt 0-7, whisper top-app ·" in lines[0])
         assertTrue(lines[1], lines[1].startsWith("Display aus: 118 s, 1,"))
         assertTrue(lines[1], "Kerne 0,3–6" in lines[1])
-        assertTrue(lines[1], "erlaubt 0-6, foreground" in lines[1])
+        assertTrue(lines[1], "erlaubt 0-6, whisper foreground, App background" in lines[1])
         assertTrue(lines[1], "Takt aktuell/max GHz: 0–2 1,1/2,0, 3–6 1,6/2,8, 7 0,8/3,2" in lines[1])
     }
 
@@ -130,11 +132,24 @@ class RunDiagnosticsTest {
     @Test
     fun clustersWithoutARealClockAreLeftOut() {
         val samples = listOf(
-            PerfSample(0, RunPhase.VISIBLE, 0, threadCpus = listOf(0, 1), clusterKhz = listOf(0, 0)),
-            PerfSample(4_000, RunPhase.VISIBLE, 20, threadCpus = listOf(0, 1), clusterKhz = listOf(0, 0))
+            PerfSample(0, RunPhase.VISIBLE, 0, threadCpus = listOf(0, 1), clusterKhz = listOf(1, 0)),
+            PerfSample(4_000, RunPhase.VISIBLE, 20, threadCpus = listOf(0, 1), clusterKhz = listOf(1, 0))
         )
-        val line = RunDiagnostics.describe(RunDiagnostics.summarize(samples, 60_000), listOf(CpuCluster(listOf(0), 0), CpuCluster(listOf(1), 0))).single()
+        val line = RunDiagnostics.describe(RunDiagnostics.summarize(samples, 60_000), listOf(CpuCluster(listOf(0), 1), CpuCluster(listOf(1), 0))).single()
         assertEquals("Display an, App offen: 4 s, 3,0× Echtzeit · Kerne 0–1", line)
+    }
+
+    @Test
+    fun aWindowsProgressIsSpreadOverTheTimeItTook() {
+        // whisper loads and decodes its first window while visible, but reports it only in the background.
+        val samples = (0..4).map { PerfSample(it * 2_000L, RunPhase.VISIBLE, 0) } +
+            (5..10).map { PerfSample(it * 2_000L, RunPhase.BACKGROUND, if (it == 10) 50 else 0) }
+        val stats = RunDiagnostics.summarize(samples, 100_000)
+        assertEquals(listOf(RunPhase.VISIBLE, RunPhase.BACKGROUND), stats.map { it.phase })
+        assertEquals(10_000L, stats[0].wallMs)
+        assertEquals(10_000L, stats[1].wallMs)
+        assertEquals(2.5, stats[0].speed!!, 0.01)
+        assertEquals(2.5, stats[1].speed!!, 0.01)
     }
 
     @Test
