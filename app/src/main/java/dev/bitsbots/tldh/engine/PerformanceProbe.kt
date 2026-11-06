@@ -3,6 +3,8 @@ package dev.bitsbots.tldh.engine
 import android.content.Context
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Log
+import dev.bitsbots.tldh.BuildConfig
 import dev.bitsbots.tldh.transcription.CpuCluster
 import dev.bitsbots.tldh.transcription.PerfSample
 import dev.bitsbots.tldh.transcription.ProcStat
@@ -26,7 +28,7 @@ class PerformanceProbe(context: Context, private val isVisible: () -> Boolean) {
     @Synchronized
     fun sample(progress: Int) {
         val pid = pid
-        samples += PerfSample(
+        val sample = PerfSample(
             atMs = SystemClock.elapsedRealtime(),
             phase = phase(),
             progress = progress,
@@ -35,6 +37,10 @@ class PerformanceProbe(context: Context, private val isVisible: () -> Boolean) {
             cpuset = pid?.let { readLine(File("/proc/$it/cpuset")) },
             clusterKhz = clusters.map { readLong(File("/sys/devices/system/cpu/cpu${it.cpus.first()}/cpufreq/scaling_cur_freq")) }
         )
+        samples += sample
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "t=${sample.atMs} ${sample.phase} p=$progress pid=$pid cpus=${sample.threadCpus} allowed=${sample.allowedCpus} cpuset=${sample.cpuset} khz=${sample.clusterKhz} own=${readLine(File("/proc/self/cpuset"))}")
+        }
     }
 
     @Synchronized
@@ -60,6 +66,8 @@ class PerformanceProbe(context: Context, private val isVisible: () -> Boolean) {
     }.getOrNull()
 
     companion object {
+        const val TAG = "TldhProbe"
+
         /** Android's Process prints "Process[pid=1234, hasExited=false]"; else search /proc. */
         fun pidOf(process: Process, executable: File): Int? =
             Regex("""pid=(\d+)""").find(process.toString())?.groupValues?.get(1)?.toIntOrNull()
@@ -81,7 +89,7 @@ class PerformanceProbe(context: Context, private val isVisible: () -> Boolean) {
                 val related = readLine(File(dir, "related_cpus"))
                     ?.split(Regex("\\s+"))?.mapNotNull { it.toIntOrNull() }?.sorted()
                     ?.takeIf { it.isNotEmpty() } ?: listOf(cpu)
-                val max = readLong(File(dir, "cpuinfo_max_freq")) ?: return@mapNotNull null
+                val max = readLong(File(dir, "cpuinfo_max_freq"))?.takeIf { it > 0 } ?: return@mapNotNull null
                 seen += related
                 CpuCluster(related, max)
             }

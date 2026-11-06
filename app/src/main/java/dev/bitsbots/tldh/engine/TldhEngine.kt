@@ -3,6 +3,7 @@ package dev.bitsbots.tldh.engine
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.util.Log
 import dev.bitsbots.tldh.BuildConfig
 import dev.bitsbots.tldh.audio.AudioIngestException
 import dev.bitsbots.tldh.audio.AudioIngestor
@@ -186,7 +187,7 @@ class TldhEngine private constructor(private val context: Context) {
         val transcribeStarted = SystemClock.elapsedRealtime()
         // Measures display/app state, cores and clock while whisper runs, so a slow run can be
         // explained from the technical details instead of guessed at.
-        val probe = withContext(Dispatchers.IO) { PerformanceProbe(context) { uiVisible } }
+        val probe = withContext(Dispatchers.IO) { PerformanceProbe(context) { uiVisible }.also { it.sample(0) } }
         val lastProgress = AtomicInteger(0)
         val run = coroutineScope {
             val sampler = launch(Dispatchers.IO) {
@@ -206,6 +207,7 @@ class TldhEngine private constructor(private val context: Context) {
                     onStarted = { process -> probe.pid = PerformanceProbe.pidOf(process, whisper.executable) },
                     onSegment = { segment -> updateProcessing(token) { it.copy(liveText = (it.liveText + " " + segment).trim()) } }
                 ) { progress ->
+                    if (BuildConfig.DEBUG) Log.d(PerformanceProbe.TAG, "t=${SystemClock.elapsedRealtime()} whisper progress $progress")
                     lastProgress.set(progress)
                     val elapsed = SystemClock.elapsedRealtime() - transcribeStarted
                     updateProcessing(token) { it.copy(progress = progress, remainingSeconds = UiText.estimateRemainingSeconds(progress, elapsed)) }
@@ -217,7 +219,8 @@ class TldhEngine private constructor(private val context: Context) {
         val performance = withContext(Dispatchers.IO) {
             probe.sample(100)
             val pcmDurationMs = prepared.file.length() / 2 * 1000 / prepared.sampleRate
-            RunDiagnostics.describe(RunDiagnostics.summarize(probe.samples(), pcmDurationMs), probe.clusters)
+            val samples = probe.samples()
+            RunDiagnostics.describe(RunDiagnostics.summarize(samples, pcmDurationMs), probe.clusters, RunDiagnostics.gapMs(samples))
         }
         updateProcessing(token) { it.copy(stage = ProcessingStage.Summarize, progress = 100) }
         val summarizeStarted = SystemClock.elapsedRealtime()

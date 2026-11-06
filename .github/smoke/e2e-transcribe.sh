@@ -122,6 +122,8 @@ adb logcat -d > "$OUT/logcat.txt"
 echo "== crashes, ANRs, kills =="
 grep -nE "FATAL EXCEPTION|ANR in|Process $PKG .*has died|Killing [0-9]+:$PKG|lowmemorykiller.*$PKG|Fatal signal|tombstone|Foreground service refused" "$OUT/logcat.txt" | head -40
 grep -A30 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -60
+echo "== measurement samples (debug log) =="
+grep -E "TldhProbe" "$OUT/logcat.txt" | sed 's/^.*TldhProbe: //' | head -80
 echo "== whisper / tldh =="
 grep -nE "TldhWorkService|whisper-cli|libwhisper" "$OUT/logcat.txt" | head -20
 

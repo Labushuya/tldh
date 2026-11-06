@@ -95,7 +95,7 @@ class RunDiagnosticsTest {
 
     @Test
     fun withoutProcessDataOnlySpeedIsShown() {
-        val samples = listOf(PerfSample(0, RunPhase.BACKGROUND, 0), PerfSample(10_000, RunPhase.BACKGROUND, 50))
+        val samples = (0..5).map { PerfSample(it * 2_000L, RunPhase.BACKGROUND, it * 10) }
         val line = RunDiagnostics.describe(RunDiagnostics.summarize(samples, 60_000), emptyList()).single()
         assertEquals("Display an, App im Hintergrund: 10 s, 3,0× Echtzeit", line)
     }
@@ -106,6 +106,35 @@ class RunDiagnosticsTest {
         val stats = RunDiagnostics.summarize(samples, 60_000)
         assertNull(stats.single().speed)
         assertTrue(RunDiagnostics.describe(stats, emptyList()).single().endsWith("kein Fortschritt gemessen"))
+    }
+
+    @Test
+    fun aPauseOfTheProbeCountsForNoPhase() {
+        val samples = listOf(
+            PerfSample(0, RunPhase.BACKGROUND, 0),
+            PerfSample(2_000, RunPhase.BACKGROUND, 0),
+            // 30 s without a sample: tl;dh itself did not run.
+            PerfSample(32_000, RunPhase.DISPLAY_OFF, 40),
+            PerfSample(34_000, RunPhase.DISPLAY_OFF, 45),
+            PerfSample(36_000, RunPhase.DISPLAY_OFF, 50),
+            PerfSample(38_000, RunPhase.DISPLAY_OFF, 55)
+        )
+        val stats = RunDiagnostics.summarize(samples, 100_000)
+        assertEquals(listOf(RunPhase.DISPLAY_OFF), stats.map { it.phase })
+        assertEquals(6_000L, stats.single().wallMs)
+        assertEquals(30_000L, RunDiagnostics.gapMs(samples))
+        val lines = RunDiagnostics.describe(stats, emptyList(), RunDiagnostics.gapMs(samples))
+        assertEquals("Messlücke: 30 s, in der Zeit kam tl;dh selbst nicht zum Messen", lines.last())
+    }
+
+    @Test
+    fun clustersWithoutARealClockAreLeftOut() {
+        val samples = listOf(
+            PerfSample(0, RunPhase.VISIBLE, 0, threadCpus = listOf(0, 1), clusterKhz = listOf(0, 0)),
+            PerfSample(4_000, RunPhase.VISIBLE, 20, threadCpus = listOf(0, 1), clusterKhz = listOf(0, 0))
+        )
+        val line = RunDiagnostics.describe(RunDiagnostics.summarize(samples, 60_000), listOf(CpuCluster(listOf(0), 0), CpuCluster(listOf(1), 0))).single()
+        assertEquals("Display an, App offen: 4 s, 3,0× Echtzeit · Kerne 0–1", line)
     }
 
     @Test

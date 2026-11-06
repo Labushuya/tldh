@@ -45,10 +45,12 @@ data class PhaseStats(
 /**
  * Turns the samples of one run into per-phase numbers. Time between two samples counts for the
  * phase of the earlier one; audio progress in that time is credited to the same phase. whisper
- * reports progress per 30 s window, so short phases are rough.
+ * reports progress per 30 s window, so short phases are rough. A pause longer than [GAP_MS]
+ * between two samples means tl;dh itself did not get to run; that time counts for no phase.
  */
 object RunDiagnostics {
     const val SAMPLE_INTERVAL_MS = 2_000L
+    const val GAP_MS = 8_000L
     private const val MIN_PHASE_MS = 3_000L
     private const val MIN_CORE_SHARE = 0.05
 
@@ -58,6 +60,7 @@ object RunDiagnostics {
         val audio = mutableMapOf<RunPhase, Long>()
         samples.zipWithNext().forEach { (a, b) ->
             val dt = (b.atMs - a.atMs).coerceAtLeast(0)
+            if (dt > GAP_MS) return@forEach
             val dp = (b.progress - a.progress).coerceAtLeast(0)
             wall[a.phase] = (wall[a.phase] ?: 0) + dt
             audio[a.phase] = (audio[a.phase] ?: 0) + dp * audioDurationMs / 100
@@ -78,8 +81,12 @@ object RunDiagnostics {
         }
     }
 
-    /** One line per phase for the technical details of a result. */
-    fun describe(stats: List<PhaseStats>, clusters: List<CpuCluster>): List<String> = stats.map { s ->
+    /** Time between samples that were further apart than [GAP_MS]. */
+    fun gapMs(samples: List<PerfSample>): Long =
+        samples.zipWithNext().sumOf { (a, b) -> (b.atMs - a.atMs).takeIf { it > GAP_MS } ?: 0L }
+
+    /** One line per phase for the technical details of a result, plus one for measuring gaps. */
+    fun describe(stats: List<PhaseStats>, clusters: List<CpuCluster>, gapMs: Long = 0): List<String> = stats.map { s ->
         val speed = s.speed?.let { "%.1f× Echtzeit".format(Locale.GERMANY, it) } ?: "kein Fortschritt gemessen"
         buildList {
             add("${s.phase.label}: ${"%.0f".format(Locale.GERMANY, s.wallMs / 1000.0)} s, $speed")
@@ -88,6 +95,10 @@ object RunDiagnostics {
             if (group.isNotEmpty()) add(group.joinToString(", "))
             clock(s.clusterKhz, clusters)?.let { add("Takt aktuell/max GHz: $it") }
         }.joinToString(" · ")
+    } + if (gapMs >= GAP_MS) {
+        listOf("Messlücke: ${"%.0f".format(Locale.GERMANY, gapMs / 1000.0)} s, in der Zeit kam tl;dh selbst nicht zum Messen")
+    } else {
+        emptyList()
     }
 
     /** Cores whisper's threads were seen on in at least 5 % of the observations. */
@@ -116,12 +127,14 @@ object RunDiagnostics {
         return parts.joinToString(",")
     }
 
+    /** Clusters without a real clock reading (e.g. emulators report 0) are left out. */
     private fun clock(khz: List<Long?>, clusters: List<CpuCluster>): String? {
-        if (clusters.isEmpty() || khz.none { it != null }) return null
-        return clusters.mapIndexedNotNull { i, cluster ->
-            val current = khz.getOrNull(i) ?: return@mapIndexedNotNull null
+        val parts = clusters.mapIndexedNotNull { i, cluster ->
+            val current = khz.getOrNull(i)?.takeIf { it > 0 } ?: return@mapIndexedNotNull null
+            if (cluster.maxKhz <= 0) return@mapIndexedNotNull null
             "${ranges(cluster.cpus)} ${ghz(current)}/${ghz(cluster.maxKhz)}"
-        }.joinToString(", ")
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(", ")
     }
 
     private fun ghz(khz: Long): String = "%.1f".format(Locale.GERMANY, khz / 1_000_000.0)
